@@ -13,6 +13,9 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'account.balance': 'account-balance',
+  'account.circle': 'account-circle',
+  'bullseye.arrow': 'bullseye-arrow'
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],

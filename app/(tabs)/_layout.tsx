@@ -34,10 +34,31 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="watchlists"
+        options={{
+          title: 'Watchlists',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bullseye.arrow" color={color} />,
+        }}
+      />
+        <Tabs.Screen
+        name="portfolio"
+        options={{
+          title: 'Portfolio',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="account.balance" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+        }}
+      />
+            <Tabs.Screen
+        name="account"
+        options={{
+          title: 'Account',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="account.circle" color={color} />,
         }}
       />
     </Tabs>
