@@ -34,10 +34,10 @@ interface PortfolioSummary {
     totalMarketValue: number;
     totalCost: number;
     totalNetValue: number; 
-    openPnl : number; 
-    openPercentagePnl: number;
-    dayPnl: number; 
-    dayPercentagePnl: number; 
+    openPnL : number; 
+    percentagePnL: number;
+    dayPnL: number; 
+    dayPercentagePnL: number; 
 
 
 }
@@ -113,35 +113,35 @@ const PortfolioScreen = () => {
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Portfolio</Text>
       <View style={styles.summaryCard}>
-        <Text style={styles.funds}>Available Funds: ${portfolio?.availableFunds?.toFixed(2) ?? '0.00'}</Text>
+        <Text style={styles.funds}>Available Funds: ${portfolio?.availableFunds?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
   <View style={styles.summaryRow}>
     <Text style={styles.summaryLabel}>Net Value:</Text>
-    <Text style={styles.summaryValue}>${portfolioSummary?.totalNetValue?.toFixed(2) ?? '0.00'}</Text>
+    <Text style={styles.summaryValue}>${portfolioSummary?.totalNetValue?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
   </View>
   <View style={styles.summaryRow}>
     <Text style={styles.summaryLabel}>Market Value:</Text>
-    <Text style={styles.summaryValue}>${portfolioSummary?.totalMarketValue?.toFixed(2) ?? '0.00'}</Text>
+    <Text style={styles.summaryValue}>${portfolioSummary?.totalMarketValue?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
   </View>
   <View style={styles.summaryRow}>
     <Text style={styles.summaryLabel}>Cost:</Text>
-    <Text style={styles.summaryValue}>${portfolioSummary?.totalCost?.toFixed(2) ?? '0.00'}</Text>
+    <Text style={styles.summaryValue}>${portfolioSummary?.totalCost?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
   </View>
   <View style={styles.summaryRow}>
     <Text style={styles.summaryLabel}>Today’s +/-:</Text>
     <Text style={[
       styles.summaryValue,
-      { color: (portfolioSummary?.dayPnl ?? 0) >= 0 ? '#4caf50' : '#f44336' }
+      { color: (portfolioSummary?.dayPnL ?? 0) >= 0 ? '#4caf50' : '#f44336' }
     ]}>
-      ${portfolioSummary?.dayPnl?.toFixed(2) ?? '0.00'} ({portfolioSummary?.dayPercentagePnl?.toFixed(2) ?? '0.00'}%)
+      ${portfolioSummary?.dayPnL?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'} ({portfolioSummary?.dayPercentagePnL?.toFixed(2) ?? '0.00'}%)
     </Text>
   </View>
   <View style={styles.summaryRow}>
     <Text style={styles.summaryLabel}>Open +/-:</Text>
     <Text style={[
       styles.summaryValue,
-      { color: (portfolioSummary?.openPnl ?? 0) >= 0 ? '#4caf50' : '#f44336' }
+      { color: (portfolioSummary?.openPnL ?? 0) >= 0 ? '#4caf50' : '#f44336' }
     ]}>
-      ${portfolioSummary?.openPnl?.toFixed(2) ?? '0.00'} ({portfolioSummary?.openPercentagePnl?.toFixed(2) ?? '0.00'}%)
+      ${portfolioSummary?.openPnL?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'} ({portfolioSummary?.percentagePnL?.toFixed(2) ?? '0.00'}%)
     </Text>
   </View>
 </View>
@@ -154,10 +154,10 @@ const PortfolioScreen = () => {
             <Text style={styles.symbol}>{position.symbol}</Text>
             <Text>Type: {position.type}</Text>
             <Text>Quantity: {position.quantity}</Text>
-            <Text>Avg Price: ${position.averagePurchasePrice.toFixed(2)}</Text>
-            <Text>Current Price: ${position.currentPrice.toFixed(2)}</Text>
-            <Text>Market Value: ${position.marketValue.toFixed(2)}</Text>
-            <Text>Total Cost: ${position.totalCost.toFixed(2)}</Text>
+            <Text>Avg Price: ${position.averagePurchasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text>Current Price: ${position.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text>Market Value: ${position.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text>Total Cost: ${position.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
           </View>
         );
       })}

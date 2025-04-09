@@ -37,7 +37,7 @@ export default function TabLayout() {
         name="watchlists"
         options={{
           title: 'Watchlists',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bullseye.arrow" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="list.alt" color={color} />,
         }}
       />
         <Tabs.Screen

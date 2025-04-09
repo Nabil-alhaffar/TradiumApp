@@ -36,9 +36,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (isAuthenticated === false) {
-      router.replace('/login'); // 🚀 Redirect to login if not authenticated
+      router.replace('/login');
     } else if (isAuthenticated === true) {
-      router.replace('/'); // 🚀 Redirect to main `(tabs)` instead of `/home`
+      router.replace('/portfolio'); 
     }
   }, [isAuthenticated]);
 

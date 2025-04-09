@@ -5,6 +5,8 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import AsyncStorage  from '@react-native-async-storage/async-storage';
 import axios, { Axios } from 'axios';
+import { Alert, TextInput, Modal } from 'react-native';
+
 
 interface userInfo{
     userId: string ;
@@ -64,6 +66,33 @@ const AccountScreen = () => {
 
     router.replace('/login'); 
   };
+  const [newPassword, setNewPassword] = useState('');
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const handleResetPassword = async () => {
+    try {
+      if (!newPassword.trim()) {
+        Alert.alert("Error", "Password cannot be empty.");
+        return;
+      }
+  
+      const response = await axios.patch(
+        `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/user/${userData?.userId}/reset-password`,
+        { newPassword },
+        {
+          headers: {
+            Authorization: `Bearer ${userData?.token}`,
+          },
+        }
+      );
+  
+      Alert.alert("Success", "Password reset successfully.");
+      setIsModalVisible(false);
+      setNewPassword('');
+    } catch (error: any) {
+      console.log(error.response?.data || error.message);
+      Alert.alert("Error", "Failed to reset password.");
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -87,8 +116,28 @@ const AccountScreen = () => {
         <Text style={styles.label}>Access Token</Text>
         <Text style={styles.token}>{userData?.token}</Text>
       </View>
-  
-      <Button title="Logout" onPress={handleLogout} />
+      <View style = {styles.buttonContainer}>
+      <Button color={"#121212"}  title="Logout" onPress={handleLogout} />
+      <Button color={"121212"}  title="Reset Password" onPress={() => setIsModalVisible(true)} />
+
+        <Modal visible={isModalVisible} animationType="slide" transparent>
+        <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+            <Text style={styles.label}>New Password</Text>
+            <TextInput
+                secureTextEntry
+                style={styles.input}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="Enter new password"
+                placeholderTextColor="#aaa"
+            />
+            <Button title="Submit" onPress={handleResetPassword} />
+            <Button title="Cancel" onPress={() => setIsModalVisible(false)} />
+            </View>
+        </View>
+        </Modal>
+        </View>
     </View>
   );
   
@@ -142,5 +191,29 @@ const styles = StyleSheet.create({
       color: '#ccc',
       marginTop: 4,
     },
+    buttonContainer:{
+        flexDirection: 'row',
+        padding:10,
+        justifyContent : 'space-evenly'
+    },
+    modalContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.7)',
+      },
+      modalContent: {
+        backgroundColor: '#1e1e1e',
+        padding: 20,
+        borderRadius: 10,
+        width: '80%',
+      },
+      input: {
+        backgroundColor: '#2a2a2a',
+        color: '#fff',
+        padding: 10,
+        borderRadius: 8,
+        marginBottom: 15,
+      },
   });
   
