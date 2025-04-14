@@ -26,18 +26,25 @@ export default function TabLayout() {
           default: {},
         }),
       }}>
-      <Tabs.Screen
+      {/* <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
-      />
+      /> */}
       <Tabs.Screen
         name="watchlists"
         options={{
           title: 'Watchlists',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="list.alt" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="trade"
+        options={{
+          title: 'Trade',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="handshake" color={color} />,
         }}
       />
         <Tabs.Screen
@@ -47,13 +54,13 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="account.balance" color={color} />,
         }}
       />
-      <Tabs.Screen
+      {/* <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
         }}
-      />
+      /> */}
             <Tabs.Screen
         name="account"
         options={{

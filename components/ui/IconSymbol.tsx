@@ -15,7 +15,9 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'account.balance': 'account-balance',
   'account.circle': 'account-circle',
-  'bullseye.arrow': 'bullseye-arrow'
+  'list.alt': 'list-alt',
+  'search':'search',
+  'handshake':'handshake',
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],
