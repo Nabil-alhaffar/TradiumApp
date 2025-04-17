@@ -39,15 +39,39 @@ interface PortfolioSummary {
     dayPnL: number; 
     dayPercentagePnL: number; 
 
-
 }
+interface PositionSummary {
+
+    symbol: string,
+    quantity: 3500,
+    averagePurchasePrice: number,
+    currentPrice: number,
+    marketValue: number,
+    totalCost: number,
+    openPNL: number,
+    openPNLPercentage: number
+}
+
 let token: string | null = null;
 let userId : string| null = null; 
+
+const fetchPositionSummary = async (symbol: string) =>{
+    const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Position/${userId}/get-position-summary/${symbol}`, {
+            headers: {
+                // Accept: 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+    });
+    return response.data;
+        
+}
+
 const PortfolioScreen = () => {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary| null> (null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [positionSummaries, setPositionSummaries] = useState<{ [symbol: string]: PositionSummary }>({});
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -77,17 +101,25 @@ const PortfolioScreen = () => {
                 Authorization: `Bearer ${token}`,
               },
 
-
+   
             });
-          console.log('Fetched Portfolio:', portfolioResponse.data);
-          setPortfolio(portfolioResponse.data.portfolio);
-          setPortfolioSummary(portfolioSummaryResponse.data);
-          setLoading(false);
-        } catch (error) {
-          console.error('Error fetching portfolio:', error);
+            const portfolioData = portfolioResponse.data.portfolio;
+            console.log('Fetched Portfolio:', portfolioResponse.data);
+            setPortfolio(portfolioResponse.data.portfolio);
+            setPortfolioSummary(portfolioSummaryResponse.data);
+           // Fetch each position summary
+            const summaries: { [symbol: string]: PositionSummary } = {};
+            for (const symbol of Object.keys(portfolioData.positions)) {
+                const summary = await fetchPositionSummary(symbol);
+                summaries[symbol] = summary;
+            }
+            setPositionSummaries(summaries);
+            setLoading(false);
+        }   catch (error) {
+            console.error('Error fetching portfolio:', error);
         //   setError(error);
         }
-      };
+    };
   
     fetchPortfolio();
   }, []);
@@ -148,7 +180,7 @@ const PortfolioScreen = () => {
 
       {portfolio?.positions && Object.keys(portfolio.positions).map((symbol) => {
         const position = portfolio.positions[symbol];
-
+        const summary = positionSummaries[symbol];
         return (
           <View key={position.positionId} style={styles.positionCard}>
             <Text style={styles.symbol}>{position.symbol}</Text>
@@ -158,6 +190,9 @@ const PortfolioScreen = () => {
             <Text>Current Price: ${position.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
             <Text>Market Value: ${position.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
             <Text>Total Cost: ${position.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text style={{ color: summary?.openPNL >= 0 ? '#4caf50' : '#f44336' }}>
+            Open PnL: ${summary?.openPNL?.toFixed(2) ?? 'Loading...'} ({summary?.openPNLPercentage?.toFixed(2) ?? '0.00'}%)
+            </Text>
           </View>
         );
       })}

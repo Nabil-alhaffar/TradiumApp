@@ -16,6 +16,7 @@ import {
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import PortfolioScreen from './portfolio';
 
 interface stock {
   symbol: string;
@@ -51,6 +52,15 @@ interface stock {
   };
   logoUrl: string;
 }
+interface position {
+    symbol: string, 
+    quantity: number, 
+    positionRatio : number, 
+    type: string,
+    averagePurchasePrice: number, 
+    totalCost: number, 
+    marketValue: number
+}
 
 const orderTypes = ['Buy', 'Sell', 'Short', 'CloseShort'];
 
@@ -59,10 +69,14 @@ const TradeScreen = () => {
   const [searchedSymbol, setSearchedSymbol] = useState('');
   const [stock, setStock] = useState<stock | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedOrderType, setSelectedOrderType] = useState('');
   const [quantity, setQuantity] = useState('1');
+
+  const [isExistingPosition,setIsExistingPosition] = useState (false);  
+  const [position, setPosition] = useState <position| null> (null);
 
   useEffect(() => {
     const getToken = async () => {
@@ -71,12 +85,19 @@ const TradeScreen = () => {
         : await SecureStore.getItemAsync('userToken');
       setToken(storedToken);
     };
+    const getUserId = async ()=> {
+        const storedUserId = Platform.OS === 'web'
+        ? await AsyncStorage.getItem('userId')
+        : await SecureStore.getItemAsync('userId');
+        setUserId (storedUserId);
+    }
     getToken();
+    getUserId();
   }, []);
 
   const fetchStock = async () => {
     try {
-      const response = await axios.get(
+      const overviewResponse = await axios.get(
         `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/AlphaVantageStockMarket/getStock/${searchedSymbol}`,
         {
           headers: {
@@ -85,10 +106,11 @@ const TradeScreen = () => {
         }
       );
       setStock({
-        ...response.data.stock,
-        dividendDate: response.data.stock.dividendDate ? new Date(response.data.stock.dividendDate) : null,
-        exDividendDate: response.data.stock.exDividendDate ? new Date(response.data.stock.exDividendDate) : null,
+        ...overviewResponse.data.stock,
+        dividendDate: overviewResponse.data.stock.dividendDate ? new Date(overviewResponse.data.stock.dividendDate) : null,
+        exDividendDate: overviewResponse.data.stock.exDividendDate ? new Date(overviewResponse.data.stock.exDividendDate) : null,
       });
+      fetchExistingPosition();
       setError(null);
     } catch (err) {
       console.error('Error fetching stock:', err);
@@ -123,6 +145,34 @@ const TradeScreen = () => {
       Alert.alert('Error', 'Failed to execute trade.');
     }
   };
+  const fetchExistingPosition = async () => {
+    console.log("fetching position")
+    // if (!token || !stock ) return ; 
+
+    try {
+        
+        const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Portfolio/Positions/${userId}/${searchedSymbol}`, {
+            headers: {
+                Authorization: `Bearer ${token} `,
+            }
+        })
+
+        setPosition(response.data);
+        console.log("fetched response", response)
+        if (position){
+
+            setIsExistingPosition(true);
+        }
+            
+    }
+    catch (err){
+        console.error("Error fetching position ", err);
+        // setError(err.message);
+        
+    }
+
+
+  }
 
   return (
     <ScrollView style={styles.container}>
@@ -143,6 +193,13 @@ const TradeScreen = () => {
         <>
           {/* Stock Info Card */}
           <View style={styles.stockCard}>
+          {stock.logoURL && (
+              <Image
+                source={{ uri: stock.logoURL }}
+                style={{ width: 100, height: 100, marginTop: 10,marginBottom: 50, alignSelf: 'center'}}
+                resizeMode="contain"
+              />
+            )}
             {Object.entries({
               Symbol: stock.symbol,
               Company: stock.companyName,
@@ -178,40 +235,77 @@ const TradeScreen = () => {
             ))}
 
             <Text style={styles.stockDescription}>{stock.description}</Text>
-
-            {stock.logoURL && (
-              <Image
-                source={{ uri: stock.logoURL }}
-                style={{ width: 100, height: 100, marginTop: 10 }}
-                resizeMode="contain"
-              />
-            )}
           </View>
-
+                 
           {/* Quote Card */}
-          <View style={styles.stockCard}>
-            <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>Quote Data</Text>
-            {Object.entries({
-              Open: stock.quote.open,
-              High: stock.quote.high,
-              Low: stock.quote.low,
-              'Last Price': stock.quote.lastPrice,
-              Volume: stock.quote.volume.toLocaleString(),
-              'Previous Close': stock.quote.previousClose,
-              Change: stock.quote.change,
-              'Change Percent': `${stock.quote.changePercent}%`,
-              'Latest Trading Day': new Date(stock.quote.latestTradingDay).toLocaleDateString(),
-            }).map(([label, value]) => (
-              <View key={label} style={styles.cardRow}>
-                <Text style={styles.cardLabel}>{label}</Text>
-                <Text style={styles.cardValue}>{value}</Text>
-              </View>
-            ))}
+            <View style={styles.stockCard}>
+                <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>Quote Data</Text>
+                {Object.entries({
+                Open: stock.quote.open,
+                High: stock.quote.high,
+                Low: stock.quote.low,
+                'Last Price': stock.quote.lastPrice,
+                Volume: stock.quote.volume.toLocaleString(),
+                'Previous Close': stock.quote.previousClose,
+                Change: stock.quote.change,
+                'Change Percent': `${stock.quote.changePercent}%`,
+                'Latest Trading Day': new Date(stock.quote.latestTradingDay).toLocaleDateString(),
+                }).reduce((rows, entry, index) => {
+                    const rowIndex = Math.floor(index / 3);
+                    if (!rows[rowIndex]) rows[rowIndex] = [];
+                    rows[rowIndex].push(entry);
+                    return rows;
+                  }, [] as [string, any][][]).map((row, rowIndex) => (
+                    <View key={rowIndex} style={styles.cardRowMulti}>
+                      {row.map(([label, value]) => (
+                        <View key={label} style={{ flex: 1 }}>
+                          <Text style={styles.cardLabel}>{label}</Text>
+                          <Text style={styles.cardValue}>{value}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+
+                
+          </View>
+          {position && (
+                    <>
+                <View style = {styles.positionCard}>
+                    <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>Current Position</Text>
+
+                    {Object.entries({
+                        Quantity: position?.quantity, 
+                        'Position Ratio': `${position?.positionRatio}%` , 
+                        'Position Type': position?.type,
+                        'Average Price Per Share ': `$${position?.averagePurchasePrice}`, 
+                        Cost: `$${position?.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`, 
+                        'Market Value': `$${position?.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`,
+
+                    }).reduce((rows, entry, index) => {
+                        const rowIndex = Math.floor(index / 3);
+                        if (!rows[rowIndex]) rows[rowIndex] = [];
+                        rows[rowIndex].push(entry);
+                        return rows;
+                    }, [] as [string, any][][]).map((row, rowIndex) => (
+                        <View key={rowIndex} style={styles.cardRowMulti}>
+                        {row.map(([label, value]) => (
+                            <View key={label} style={{ flex: 1 }}>
+                            <Text style={styles.cardLabel}>{label}</Text>
+                            <Text style={styles.cardValue}>{value}</Text>
+                            </View>
+                        ))}
+                        </View>
+                    ))}  
+
+
+                </View>
+                    </>
+                )}
 
             <TouchableOpacity style={styles.tradeButton} onPress={() => setIsModalVisible(true)}>
-              <Text style={{ color: 'white', fontWeight: 'bold' }}>Trade</Text>
+                <Text style={{ color: 'white', fontWeight: 'bold' }}>Trade</Text>
             </TouchableOpacity>
-          </View>
+
         </>
       )}
 
@@ -328,6 +422,19 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     color: '#666',
     fontSize: 12,
+  },
+  positionCard: {
+    
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,    
+      
   },
   tradeButton: {
     marginTop: 16,
