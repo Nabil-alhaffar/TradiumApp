@@ -43,7 +43,7 @@ interface PortfolioSummary {
 interface PositionSummary {
 
     symbol: string,
-    quantity: 3500,
+    quantity: number,
     averagePurchasePrice: number,
     currentPrice: number,
     marketValue: number,
@@ -191,7 +191,7 @@ const PortfolioScreen = () => {
             <Text>Market Value: ${position.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
             <Text>Total Cost: ${position.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
             <Text style={{ color: summary?.openPNL >= 0 ? '#4caf50' : '#f44336' }}>
-            Open PnL: ${summary?.openPNL?.toFixed(2) ?? 'Loading...'} ({summary?.openPNLPercentage?.toFixed(2) ?? '0.00'}%)
+            Open PnL: ${summary?.openPNL?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? 'Loading...'} ({summary?.openPNLPercentage?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}%)
             </Text>
           </View>
         );

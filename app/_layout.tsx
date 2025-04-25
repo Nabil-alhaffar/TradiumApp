@@ -38,7 +38,7 @@ export default function RootLayout() {
     if (isAuthenticated === false) {
       router.replace('/login');
     } else if (isAuthenticated === true) {
-      router.replace('/portfolio'); 
+      router.replace('/tabs/(portfolio)/summary'); 
     }
   }, [isAuthenticated]);
 
@@ -49,7 +49,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="tabs" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>

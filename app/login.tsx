@@ -35,7 +35,7 @@ const LoginScreen = () => {
         }
 
         console.log('Login successful!');
-        router.replace('/portfolio'); 
+        router.replace('/tabs/(portfolio)/summary'); 
       }
     } catch (error) {
       console.error('Login failed:', error);
