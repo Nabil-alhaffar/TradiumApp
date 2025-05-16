@@ -6,12 +6,13 @@ import { Platform } from 'react-native';
 import AsyncStorage  from '@react-native-async-storage/async-storage';
 import axios, { Axios } from 'axios';
 import { Alert, TextInput, Modal } from 'react-native';
-
+import Toast from 'react-native-toast-message';
 
 interface userInfo{
     userId: string ;
     token: string;
     email: string;
+
     username: string; 
     firstName: string;
     lastName: string;
@@ -63,7 +64,10 @@ const AccountScreen = () => {
         await SecureStore.deleteItemAsync('userToken');
         await SecureStore.deleteItemAsync('userId');
     }
-
+    Toast.show({
+      type: 'success',
+      text1: `Logout successful! `,
+    });
     router.replace('/login'); 
   };
   const [newPassword, setNewPassword] = useState('');
@@ -84,13 +88,22 @@ const AccountScreen = () => {
           },
         }
       );
-  
+      Toast.show({
+        type: 'success',
+        text1: `Password reset successfully.`,
+        text2: `${response.data.Message}`,
+      });
       Alert.alert("Success", "Password reset successfully.");
       setIsModalVisible(false);
       setNewPassword('');
     } catch (error: any) {
       console.log(error.response?.data || error.message);
-      Alert.alert("Error", "Failed to reset password.");
+      Toast.show({
+        type: 'Error',
+        text1: `Failed to reset password.`,
+        text2: `${error}`,
+      });
+      Alert.alert("Error", "");
     }
   };
 

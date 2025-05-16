@@ -1,18 +1,11 @@
-
-import { Collapsible } from '@/components/Collapsible';
-import { ExternalLink } from '@/components/ExternalLink';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { IconSymbol } from '@/components/ui/IconSymbol';
+import { ScrollView, StyleSheet, View, Text, ActivityIndicator, Platform, RefreshControl, TouchableOpacity } from 'react-native';
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import axios from 'axios';
-import { fetch } from 'react-native-ssl-pinning';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { tokens } from 'react-native-paper/lib/typescript/styles/themes/v3/tokens';
-// Define interfaces for type safety
+import { MaterialIcons } from '@expo/vector-icons';
+
+
 interface Position {
   userId: string;
   positionId: string;
@@ -27,171 +20,184 @@ interface Position {
 }
 
 interface Portfolio {
+  portfolioId: number;
   availableFunds: number;
   positions: { [key: string]: Position };
 }
+
 interface PortfolioSummary {
-    totalMarketValue: number;
-    totalCost: number;
-    totalNetValue: number; 
-    openPnL : number; 
-    percentagePnL: number;
-    dayPnL: number; 
-    dayPercentagePnL: number; 
-
+  totalMarketValue: number;
+  totalCost: number;
+  totalNetValue: number;
+  openPnL: number;
+  percentagePnL: number;
+  dayPnL: number;
+  dayPercentagePnL: number;
 }
-interface PositionSummary {
 
-    symbol: string,
-    quantity: number,
-    averagePurchasePrice: number,
-    currentPrice: number,
-    marketValue: number,
-    totalCost: number,
-    openPNL: number,
-    openPNLPercentage: number
+interface PositionSummary {
+  symbol: string;
+  quantity: number;
+  averagePurchasePrice: number;
+  currentPrice: number;
+  marketValue: number;
+  totalCost: number;
+  openPNL: number;
+  openPNLPercentage: number;
 }
 
 let token: string | null = null;
-let userId : string| null = null; 
+let userId: string | null = null;
 
-const fetchPositionSummary = async (symbol: string) =>{
-    const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Position/${userId}/get-position-summary/${symbol}`, {
-            headers: {
-                // Accept: 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-    });
-    return response.data;
-        
-}
+const fetchPositionSummary = async (symbol: string) => {
+  const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Position/${userId}/get-position-summary/${symbol}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.data;
+};
+
+
 
 const PortfolioScreen = () => {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary| null> (null);
+  const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary | null>(null);
+  const [positionSummaries, setPositionSummaries] = useState<{ [symbol: string]: PositionSummary }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [positionSummaries, setPositionSummaries] = useState<{ [symbol: string]: PositionSummary }>({});
+  const [refreshing, setRefreshing] = useState (false);
 
+  const fetchPortfolio = async () => {
+    try {
+      token = Platform.OS === 'web'
+        ? await AsyncStorage.getItem('userToken')
+        : await SecureStore.getItemAsync('userToken');
+      userId = Platform.OS === 'web'
+        ? await AsyncStorage.getItem('userId')
+        : await SecureStore.getItemAsync('userId');
+
+      const [portfolioRes, summaryRes] = await Promise.all([
+        axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/portfolio/${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/portfolio/summary/${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+
+      setPortfolio(portfolioRes.data.portfolio);
+      setPortfolioSummary(summaryRes.data);
+
+      const summaries: { [symbol: string]: PositionSummary } = {};
+      for (const symbol of Object.keys(portfolioRes.data.portfolio.positions)) {
+        summaries[symbol] = await fetchPositionSummary(symbol);
+      }
+
+      setPositionSummaries(summaries);
+    } catch (error) {
+      setError('Error fetching portfolio.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
   useEffect(() => {
-    const fetchPortfolio = async () => {
-        try {
-           
-            if (Platform.OS === 'web') {
-                token = await AsyncStorage.getItem('userToken');
-                userId = await AsyncStorage.getItem('userId');
-               }
-            else {
-                token = await SecureStore.getItemAsync('userToken');
-                userId = await SecureStore.getItemAsync('userId');
-               }
-            //    console.log('Fetched userId:', userId);
 
-               const portfolioResponse = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/portfolio/${userId}`, {
-                headers: {
-                // Accept: 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
-
-
-            });
-            const portfolioSummaryResponse = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/portfolio/summary/${userId}`, {
-                headers: {
-                // Accept: 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
-
-   
-            });
-            const portfolioData = portfolioResponse.data.portfolio;
-            console.log('Fetched Portfolio:', portfolioResponse.data);
-            setPortfolio(portfolioResponse.data.portfolio);
-            setPortfolioSummary(portfolioSummaryResponse.data);
-           // Fetch each position summary
-            const summaries: { [symbol: string]: PositionSummary } = {};
-            for (const symbol of Object.keys(portfolioData.positions)) {
-                const summary = await fetchPositionSummary(symbol);
-                summaries[symbol] = summary;
-            }
-            setPositionSummaries(summaries);
-            setLoading(false);
-        }   catch (error) {
-            console.error('Error fetching portfolio:', error);
-        //   setError(error);
-        }
-    };
-  
     fetchPortfolio();
   }, []);
-
+  const onRefresh = ()=> {
+    setRefreshing(true);
+    fetchPortfolio();
+  }
   if (loading) {
     return (
       <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#808080" />
-        <Text>Loading portfolio...</Text>
+        <ActivityIndicator size="large" color="#00ffcc" />
+        <Text style={styles.text}>Loading portfolio...</Text>
       </View>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Failed to load portfolio: {error}</Text>
+      <View style={styles.loader}>
+        <Text style={styles.errorText}>{error}</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Portfolio</Text>
-      <View style={styles.summaryCard}>
-        <Text style={styles.funds}>Available Funds: ${portfolio?.availableFunds?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
-  <View style={styles.summaryRow}>
-    <Text style={styles.summaryLabel}>Net Value:</Text>
-    <Text style={styles.summaryValue}>${portfolioSummary?.totalNetValue?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
-  </View>
-  <View style={styles.summaryRow}>
-    <Text style={styles.summaryLabel}>Market Value:</Text>
-    <Text style={styles.summaryValue}>${portfolioSummary?.totalMarketValue?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
-  </View>
-  <View style={styles.summaryRow}>
-    <Text style={styles.summaryLabel}>Cost:</Text>
-    <Text style={styles.summaryValue}>${portfolioSummary?.totalCost?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}</Text>
-  </View>
-  <View style={styles.summaryRow}>
-    <Text style={styles.summaryLabel}>Today’s +/-:</Text>
-    <Text style={[
-      styles.summaryValue,
-      { color: (portfolioSummary?.dayPnL ?? 0) >= 0 ? '#4caf50' : '#f44336' }
-    ]}>
-      ${portfolioSummary?.dayPnL?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'} ({portfolioSummary?.dayPercentagePnL?.toFixed(2) ?? '0.00'}%)
-    </Text>
-  </View>
-  <View style={styles.summaryRow}>
-    <Text style={styles.summaryLabel}>Open +/-:</Text>
-    <Text style={[
-      styles.summaryValue,
-      { color: (portfolioSummary?.openPnL ?? 0) >= 0 ? '#4caf50' : '#f44336' }
-    ]}>
-      ${portfolioSummary?.openPnL?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'} ({portfolioSummary?.percentagePnL?.toFixed(2) ?? '0.00'}%)
-    </Text>
-  </View>
-</View>
+    <ScrollView style={styles.container} 
+                refreshControl={
+                <RefreshControl refreshing = {refreshing}
+                                onRefresh={onRefresh}
+                                tintColor="#00ffcc"
+                                colors = {['#00ffcc']}/>}>
+      {/* <Text style={styles.header}>Portfolio</Text> */}
+      {Platform.OS ==='web' && (
+      <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
+          <MaterialIcons name="refresh" size={24} color="#ffd700" />
+          <Text style={styles.refreshText}>Refresh</Text>
+        </TouchableOpacity>
+      )}
+      <View style={[styles.card, { borderLeftColor: '#FFD700' }]}>
+        <View style={styles.row}>
+          <MaterialIcons name="account-balance-wallet" size={24} color="#FFD700" />
+          <Text style={styles.symbol}>Summary</Text>
+        </View>
+        <Text style={styles.label}>Available Funds: ${portfolio?.availableFunds.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Net Value: ${portfolioSummary?.totalNetValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Market Value: ${portfolioSummary?.totalMarketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Cost: ${portfolioSummary?.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={[styles.label, { color: portfolioSummary?.dayPnL >= 0 ? '#00FF00' : '#FF5252' }]}>
+          Today's +/-: ${portfolioSummary?.dayPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioSummary?.dayPercentagePnL.toFixed(2)}%)
+        </Text>
+        <Text style={[styles.label, { color: portfolioSummary?.openPnL >= 0 ? '#00FF00' : '#FF5252' }]}>
+          Open +/-: ${portfolioSummary?.openPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioSummary?.percentagePnL.toFixed(2)}%)
+        </Text>
+      </View>
 
-      {portfolio?.positions && Object.keys(portfolio.positions).map((symbol) => {
-        const position = portfolio.positions[symbol];
-        const summary = positionSummaries[symbol];
+      <Text style={styles.header}>Holdings</Text>
+
+      {Object.values(portfolio?.positions || {}).map((position) => {
+        const summary = positionSummaries[position.symbol];
         return (
-          <View key={position.positionId} style={styles.positionCard}>
-            <Text style={styles.symbol}>{position.symbol}</Text>
-            <Text>Type: {position.type}</Text>
-            <Text>Quantity: {position.quantity}</Text>
-            <Text>Avg Price: ${position.averagePurchasePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-            <Text>Current Price: ${position.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-            <Text>Market Value: ${position.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-            <Text>Total Cost: ${position.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-            <Text style={{ color: summary?.openPNL >= 0 ? '#4caf50' : '#f44336' }}>
-            Open PnL: ${summary?.openPNL?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? 'Loading...'} ({summary?.openPNLPercentage?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}%)
+          <View
+            key={position.positionId}
+            style={[
+              styles.card,
+              { borderLeftColor: summary?.openPNL > 0
+                               ? '#4CAF50' 
+                               : summary.openPNL< 0 
+                               ? '#F44336'
+                               : '#9E9E9E'},
+            ]}
+          >
+            <View style={styles.row}>
+              <MaterialIcons
+                  name={
+                    summary.openPNL > 0
+                      ? 'trending-up'
+                      : summary.openPNL < 0
+                      ? 'trending-down'
+                      : 'trending-neutral'
+                  }                size={24}
+                  color={
+                    summary?.openPNL > 0
+                      ? '#4CAF50'    // green
+                      : summary?.openPNL < 0
+                      ? '#F44336'    // red
+                      : '#9E9E9E'    // gray for neutral
+                  }              />
+              <Text style={styles.symbol}>{position.symbol.toUpperCase()}</Text>
+              <Text style={styles.type}>
+                {position.type.toUpperCase()} x {position.quantity}
+              </Text>
+            </View>
+            <Text style={styles.price}>Avg Price: ${position.averagePurchasePrice.toFixed(2)}</Text>
+            <Text style={styles.price}>Current: ${position.currentPrice.toFixed(2)}</Text>
+            <Text style={styles.price}>Market Value: ${position.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text style={[styles.price, { color: summary?.openPNL > 0 
+                                        ? '#00FF00' 
+                                        : summary.openPNL < 0 
+                                        ? '#FF5252' 
+                                        : '#9E9E9E'}]}>
+              Open PnL: ${summary?.openPNL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({summary?.openPNLPercentage.toFixed(2)}%)
             </Text>
           </View>
         );
@@ -203,78 +209,73 @@ const PortfolioScreen = () => {
 export default PortfolioScreen;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, backgroundColor: '#121212', padding: 16 },
+  header: { fontSize: 24, fontWeight: 'bold', color: '#FFF', marginBottom: 16, marginTop:16, textAlign: 'center' },
+  card: {
+    backgroundColor: '#1E1E1E',
     padding: 16,
-    backgroundColor: '#f5f5f5',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#333',
-    textAlign:'center'
-  },
-  funds: {
-    fontSize: 18,
-    marginBottom: 20,
-    color: '#4caf50',
-    textAlign:'center'
-  },
-  summaryCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderLeftWidth: 5,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
   },
-  summaryRow: {
+  row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  summaryLabel: {
-    fontSize: 16,
-    color: '#555',
-  },
-  summaryValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  
-  positionCard: {
-    backgroundColor: '#fff',
-    padding: 15,
-    marginBottom: 10,
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    alignItems: 'center',
+    marginBottom: 6,
   },
   symbol: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#007bff',
+    color: '#FFF',
+    marginLeft: 8,
+    flex: 1,
+  },
+  type: {
+    fontSize: 14,
+    color: '#AAA',
+  },
+  price: {
+    fontSize: 16,
+    color: '#FFF',
+    marginTop: 2,
+  },
+  label: {
+    fontSize: 14,
+    color: '#CCC',
+    marginTop: 2,
+  },
+  errorText: {
+    color: '#FF5252',
+    fontSize: 16,
+    textAlign: 'center',
   },
   loader: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#121212',
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  text: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#888',
   },
-  errorText: {
-    color: 'red',
+  refreshButton: {
+    position:'absolute',
+    top:20,
+    right:20,
+    zIndex:1000,
+    flexDirection: 'row',
+    alignItems:'center',
+    marginBottom: 10,
+  },
+  refreshText: {
+    color: '#ffd700',
+    marginLeft: 6,
     fontSize: 16,
   },
 });

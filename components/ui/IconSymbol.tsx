@@ -18,6 +18,7 @@ const MAPPING = {
   'list.alt': 'list-alt',
   'search':'search',
   'handshake':'handshake',
+  'bookmark':'bookmark'
 } as Partial<
   Record<
     import('expo-symbols').SymbolViewProps['name'],

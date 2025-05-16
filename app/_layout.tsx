@@ -9,6 +9,8 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigationContainerRef } from '@react-navigation/native';
+import ToastProvider from '@/components/ui/ToastProvider'; // ✅ Add this line
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,14 +36,26 @@ export default function RootLayout() {
     checkAuth();
   }, []);
 
+  // useEffect(() => {
+  //   if (isAuthenticated === false) {
+  //     router.replace('/login');
+  //   } else if (isAuthenticated === true) {
+  //     router.replace('/tabs/(portfolio)/summary'); 
+  //   }
+  // }, [isAuthenticated]);
+  const navigationRef = useNavigationContainerRef();
+
   useEffect(() => {
-    if (isAuthenticated === false) {
-      router.replace('/login');
-    } else if (isAuthenticated === true) {
-      router.replace('/tabs/(portfolio)/summary'); 
+    if (isAuthenticated !== null) {
+      setTimeout(() => {
+        if (isAuthenticated) {
+          router.replace('/tabs/(portfolio)/summary');
+        } else {
+          router.replace('/login');
+        }
+      }, 0);
     }
   }, [isAuthenticated]);
-
   if (!loaded || isAuthenticated === null) {
     return null;
   }
@@ -54,6 +68,7 @@ export default function RootLayout() {
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar style="auto" />
+      <ToastProvider /> 
     </ThemeProvider>
   );
 }

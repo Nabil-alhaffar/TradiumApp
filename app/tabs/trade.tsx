@@ -16,8 +16,9 @@ import {
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import PortfolioScreen from './portfolio';
-
+// import PortfolioScreen from './portfolio';
+import Toast from 'react-native-toast-message';
+import { white } from 'react-native-paper/lib/typescript/styles/themes/v2/colors';
 interface stock {
   symbol: string;
   companyName: string;
@@ -111,10 +112,12 @@ const TradeScreen = () => {
         exDividendDate: overviewResponse.data.stock.exDividendDate ? new Date(overviewResponse.data.stock.exDividendDate) : null,
       });
       fetchExistingPosition();
+
       setError(null);
     } catch (err) {
       console.error('Error fetching stock:', err);
       setError('Stock not found or network issue.');
+
     }
   };
 
@@ -136,44 +139,53 @@ const TradeScreen = () => {
         }
       );
       console.log(response.data);
-      Alert.alert('Success', `${selectedOrderType} order placed.: ${response.data.Message}` );
+      Toast.show({
+        type: 'success',
+        text1: `${selectedOrderType} order placed. `,
+        text2: `${response.data.message}`,
+      });
+      Alert.alert('Success', `${selectedOrderType} order placed.: ${response.data.message}` );
       setIsModalVisible(false);
       setSelectedOrderType('');
       setQuantity('1');
-    } catch (err) {
+      await fetchExistingPosition();
+
+    } catch (err:any) {
       console.error('Trade error:', err);
+      const errorMessage =
+        err?.response?.data?.message ||
+        err?.message ||
+      'An unexpected error occurred.';
+      Toast.show({
+        type: 'error',
+        text1:  'Failed to execute trade.',
+        text2: `${errorMessage}`,
+      });
       Alert.alert('Error', 'Failed to execute trade.');
     }
   };
   const fetchExistingPosition = async () => {
-    console.log("fetching position")
-    // if (!token || !stock ) return ; 
-
+    console.log("fetching position");
+  
     try {
-        
-        const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Portfolio/Positions/${userId}/${searchedSymbol}`, {
-            headers: {
-                Authorization: `Bearer ${token} `,
-            }
-        })
-
+      const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Portfolio/Positions/${userId}/${searchedSymbol}`, {
+        headers: { Authorization: `Bearer ${token} ` }
+      });
+  
+      if (response.data) {
         setPosition(response.data);
-        console.log("fetched response", response)
-        if (position){
-
-            setIsExistingPosition(true);
-        }
-            
+        setIsExistingPosition(true);
+      } else {
+        setPosition(null);
+        setIsExistingPosition(false);
+      }
+    } catch (err) {
+      console.error("Error fetching position ", err);
+      setPosition(null);
+      setIsExistingPosition(false);
     }
-    catch (err){
-        console.error("Error fetching position ", err);
-        // setError(err.message);
-        
-    }
-
-
-  }
-
+  };
+  
   return (
     <ScrollView style={styles.container}>
       <View style={styles.lookUpInterface}>
@@ -239,9 +251,9 @@ const TradeScreen = () => {
                  
           {/* Quote Card */}
             <View style={styles.stockCard}>
-                <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>Quote Data</Text>
+                <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8, outlineColor:'#FFF', borderColor: '#FFF'}}>Quote Data</Text>
                 {Object.entries({
-                Open: stock.quote.open,
+                // Open: stock.quote.open
                 High: stock.quote.high,
                 Low: stock.quote.low,
                 'Last Price': stock.quote.lastPrice,
@@ -354,123 +366,242 @@ const TradeScreen = () => {
 };
 
 export default TradeScreen;
-
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 100,
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f5f5f5',
+    paddingTop: 40,
+    paddingHorizontal: 16,
+    backgroundColor: '#121212',
   },
   lookUpInterface: {
     flexDirection: 'row',
-    alignContent: 'center',
-    alignSelf: 'center',
+    marginBottom: 20,
+    alignItems: 'center',
+    minWidth: 600,
+    alignSelf:'center'
+
   },
   inputField: {
-    borderRadius: 15,
-    borderColor: '#000',
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-    color: '#000',
-    backgroundColor: '#fff',
+     borderRadius: 12,
+    // marginRight: 8,
     textAlign: 'center',
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#555',
+    padding: 12,
+    color: '#FFF',
     minWidth: 100,
+    alignSelf: 'center',
+
+    backgroundColor: '#1E1E1E',
   },
   lookUpButton: {
-    padding: 8,
-    backgroundColor: '#ddd',
+    backgroundColor: '#4CAF50',
+    marginLeft: 10,
+    padding: 12,
     borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   stockCard: {
+    backgroundColor: '#1E1E1E',
     padding: 16,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    marginTop: 16,
+    borderRadius: 12,
+    marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
   },
-  cardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
+  positionCard: {
+    backgroundColor: '#1E1E1E',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
   },
   cardRowMulti: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 8,
-    paddingVertical: 8,
+    marginBottom: 10,
   },
   cardLabel: {
-    fontWeight: 'bold',
-    color: '#333',
-    fontSize: 13,
+    fontSize: 12,
+    color: '#AAA',
   },
   cardValue: {
-    color: '#555',
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FFF',
+    marginTop: 2,
   },
   stockDescription: {
-    marginTop: 16,
-    fontStyle: 'italic',
-    color: '#666',
-    fontSize: 12,
-  },
-  positionCard: {
-    
-    padding: 16,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    marginTop: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,    
-      
+    marginTop: 12,
+    fontSize: 14,
+    color: '#888',
+    lineHeight: 20,
   },
   tradeButton: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: '#2e7d32',
+    backgroundColor: '#4CAF50',
+    padding: 16,
     borderRadius: 8,
     alignItems: 'center',
+    marginVertical: 20,
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center',
-    padding: 16,
+    alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#fff',
+    width: '85%',
+    backgroundColor: '#1E1E1E',
+    borderRadius: 12,
     padding: 20,
-    borderRadius: 10,
   },
   orderTypeOption: {
-    padding: 10,
-    marginVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#eee',
+    backgroundColor: '#FFF',
+    padding: 12,
+    borderRadius: 8,
+    marginVertical: 6,
+    alignItems: 'center',
   },
   selectedOrderType: {
-    backgroundColor: '#2e7d32',
+    backgroundColor: '#4CAF50',
   },
   cancelBtn: {
-    padding: 10,
-    backgroundColor: '#eee',
-    borderRadius: 6,
+    backgroundColor: '#FFF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
   },
   confirmBtn: {
-    padding: 10,
-    backgroundColor: '#2e7d32',
-    borderRadius: 6,
+    backgroundColor: '#4CAF50',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
   },
 });
+// const styles = StyleSheet.create({
+//   container: {
+//     paddingTop: 100,
+//     flex: 1,
+//     padding: 16,
+//     backgroundColor: '#f5f5f5',
+//   },
+//   lookUpInterface: {
+//     flexDirection: 'row',
+//     alignContent: 'center',
+//     alignSelf: 'center',
+//   },
+//   inputField: {
+//     borderRadius: 15,
+//     borderColor: '#000',
+//     borderWidth: 1,
+//     paddingHorizontal: 12,
+//     paddingVertical: 8,
+//     marginRight: 8,
+//     color: '#000',
+//     backgroundColor: '#fff',
+//     textAlign: 'center',
+//     minWidth: 100,
+//   },
+//   lookUpButton: {
+//     padding: 8,
+//     backgroundColor: '#ddd',
+//     borderRadius: 8,
+//   },
+//   stockCard: {
+//     padding: 16,
+//     backgroundColor: '#fff',
+//     borderRadius: 8,
+//     marginTop: 16,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.2,
+//     shadowRadius: 3,
+//     elevation: 3,
+//   },
+//   cardRow: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     paddingVertical: 8,
+//     borderBottomWidth: 1,
+//     borderBottomColor: '#ddd',
+//   },
+//   cardRowMulti: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     gap: 8,
+//     paddingVertical: 8,
+//   },
+//   cardLabel: {
+//     fontWeight: 'bold',
+//     color: '#333',
+//     fontSize: 13,
+//   },
+//   cardValue: {
+//     color: '#555',
+//     fontSize: 13,
+//   },
+//   stockDescription: {
+//     marginTop: 16,
+//     fontStyle: 'italic',
+//     color: '#666',
+//     fontSize: 12,
+//   },
+//   positionCard: {
+    
+//     padding: 16,
+//     backgroundColor: '#fff',
+//     borderRadius: 8,
+//     marginTop: 16,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.2,
+//     shadowRadius: 3,
+//     elevation: 3,    
+      
+//   },
+//   tradeButton: {
+//     marginTop: 16,
+//     padding: 12,
+//     backgroundColor: '#2e7d32',
+//     borderRadius: 8,
+//     alignItems: 'center',
+//   },
+//   modalContainer: {
+//     flex: 1,
+//     backgroundColor: 'rgba(0,0,0,0.5)',
+//     justifyContent: 'center',
+//     padding: 16,
+//   },
+//   modalContent: {
+//     backgroundColor: '#fff',
+//     padding: 20,
+//     borderRadius: 10,
+//   },
+//   orderTypeOption: {
+//     padding: 10,
+//     marginVertical: 5,
+//     borderRadius: 6,
+//     backgroundColor: '#eee',
+//   },
+//   selectedOrderType: {
+//     backgroundColor: '#2e7d32',
+//   },
+//   cancelBtn: {
+//     padding: 10,
+//     backgroundColor: '#eee',
+//     borderRadius: 6,
+//   },
+//   confirmBtn: {
+//     padding: 10,
+//     backgroundColor: '#2e7d32',
+//     borderRadius: 6,
+//   },
+// });
