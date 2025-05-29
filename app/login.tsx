@@ -16,7 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 const LoginScreen = () => {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +27,7 @@ const LoginScreen = () => {
 
     try {
       const response = await axios.post('https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/auth/login', {
-        username: email,
+        username: username,
         password: password,
       });
 
@@ -43,12 +43,17 @@ const LoginScreen = () => {
         Toast.show({
           type: 'success',
           text1: 'Login successful!',
-          text2: `Welcome back, ${response.data.userId}!`,
+          text2: `Welcome back, ${response.data.firstName}!`,
         });
 
         router.replace('/tabs/(portfolio)/summary');
       }
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error('Axios error:', error.response?.data, error.message);
+      } else {
+        console.error('Unexpected error:', error);
+      }
       console.error('Login failed:', error);
       setError('Invalid email or password');
     } finally {
@@ -67,10 +72,10 @@ const LoginScreen = () => {
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder="Username"
         placeholderTextColor="#888"
-        value={email}
-        onChangeText={setEmail}
+        value={username}
+        onChangeText={setUsername}
       />
 
       <TextInput
@@ -142,99 +147,3 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
-
-// import React, { useState } from 'react';
-// import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-// import { useRouter } from 'expo-router';
-// import * as SecureStore from 'expo-secure-store';
-// import axios from 'axios';
-// import { Platform } from 'react-native';
-// import AsyncStorage from '@react-native-async-storage/async-storage';
-// import Toast from 'react-native-toast-message';
-
-
-// const LoginScreen = () => {
-//   const router = useRouter();
-//   const [email, setEmail] = useState('');
-//   const [password, setPassword] = useState('');
-//   const [loading, setLoading] = useState(false);
-//   const [error, setError] = useState<string | null>(null);
-
-//   const handleLogin = async () => {
-//     setLoading(true);
-//     setError(null);
-
-//     try {
-//       const response = await axios.post('https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/auth/login', {
-//         username: email,
-//         password: password
-//       });
-
-//       if (response.data.token) {
-//         if (Platform.OS== 'web')
-//         {
-//             await AsyncStorage.setItem('userToken', response.data.token)
-//             await AsyncStorage.setItem('userId', response.data.userId);
-
-//         }
-//         else{
-//             await SecureStore.setItemAsync('userToken', response.data.token);
-//             await SecureStore.setItemAsync('userId', response.data.userId);
-//         }
-//         Toast.show({
-//           type: 'success',
-//           text1: `Login successful! `,
-//           text2: `Welcome back, ${response.data.userId}!`,
-//         });
-//         console.log('Login successful!');
-//         router.replace('/tabs/(portfolio)/summary');     
-//         // router.replace('/tabs'); 
-
-
-//       }
-//     } catch (error) {
-//       console.error('Login failed:', error);
-//       setError('Invalid email or password');
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   return (
-//     <View style={styles.container}>
-//       <Text style={styles.title}>Login</Text>
-
-//       <TextInput
-//         style={styles.input}
-//         placeholder="Email"
-//         value={email}
-//         onChangeText={setEmail}
-//       />
-
-//       <TextInput
-//         style={styles.input}
-//         placeholder="Password"
-//         secureTextEntry
-//         value={password}
-//         onChangeText={setPassword}
-//       />
-
-//       {error && <Text style={styles.errorText}>{error}</Text>}
-
-//       <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-//         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
-//       </TouchableOpacity>
-//     </View>
-//   );
-// };
-
-// export default LoginScreen;
-
-// const styles = StyleSheet.create({
-//   container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
-//   title: { fontSize: 24, color: '#fff', marginBottom: 20 },
-//   input: { width: '80%', height: 40, backgroundColor: '#fff', marginBottom: 10, paddingHorizontal: 10 },
-//   button: { backgroundColor: '#008000', padding: 10, width: '80%', alignItems: 'center' },
-//   buttonText: { color: '#fff', fontSize: 18 },
-//   errorText: { color: 'red', marginBottom: 10 },
-// });

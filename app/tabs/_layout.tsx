@@ -45,13 +45,20 @@ export default function TabLayout() {
         name="trade"
         options={{
           title: 'Trade',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="handshake" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="handshake" color={color}  />,
         }}
       />
         <Tabs.Screen
         name="(portfolio)"
         options={{
           title: 'Portfolio',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="account.balance" color={color} />,
+        }}
+      />
+            <Tabs.Screen
+        name="marketData"
+        options={{
+          title: 'Market',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="account.balance" color={color} />,
         }}
       />

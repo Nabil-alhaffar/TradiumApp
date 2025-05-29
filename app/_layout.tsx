@@ -10,7 +10,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigationContainerRef } from '@react-navigation/native';
-import ToastProvider from '@/components/ui/ToastProvider'; // ✅ Add this line
+import ToastProvider from '@/components/ui/ToastProvider'; 
 
 SplashScreen.preventAutoHideAsync();
 

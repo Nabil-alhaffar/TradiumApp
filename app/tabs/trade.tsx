@@ -19,6 +19,7 @@ import * as SecureStore from 'expo-secure-store';
 // import PortfolioScreen from './portfolio';
 import Toast from 'react-native-toast-message';
 import { white } from 'react-native-paper/lib/typescript/styles/themes/v2/colors';
+import StockChart from '../../components/StockChart/StockChart'
 interface stock {
   symbol: string;
   companyName: string;
@@ -106,6 +107,7 @@ const TradeScreen = () => {
           },
         }
       );
+      console.log(overviewResponse);
       setStock({
         ...overviewResponse.data.stock,
         dividendDate: overviewResponse.data.stock.dividendDate ? new Date(overviewResponse.data.stock.dividendDate) : null,
@@ -187,7 +189,7 @@ const TradeScreen = () => {
   };
   
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 50 }}>
       <View style={styles.lookUpInterface}>
         <TextInput
           style={styles.inputField}
@@ -248,6 +250,16 @@ const TradeScreen = () => {
 
             <Text style={styles.stockDescription}>{stock.description}</Text>
           </View>
+          <View>
+          <View style={styles.chartContainer} >
+            <StockChart 
+              symbol={stock.symbol}
+              timeframe="1Day"
+              chartType="candlestick"
+            />
+
+          </View>  
+        </View>
                  
           {/* Quote Card */}
             <View style={styles.stockCard}>
@@ -484,6 +496,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
+  },
+  chartContainer: {
+    overflowX:'hidden',
+    flex: 1,
+    
+    maxHeight: 900,  // increased minimum height
+    minHeight:600,
+    // maxWidth: 100,
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    marginVertical: 10,
   },
 });
 // const styles = StyleSheet.create({
