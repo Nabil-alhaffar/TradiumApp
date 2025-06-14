@@ -3,6 +3,7 @@ import {
     connectToMarketData,
     joinSymbolGroup,
     disconnect,
+    registerTradeListener, registerBarListener, registerQuoteListener, leaveSymbolGroup
   } from '../../app/services/SignalRService';
   import React, { useEffect, useState } from 'react';
   import {
@@ -87,33 +88,35 @@ import {
           userId = await SecureStore.getItemAsync('userId');
         }
   
-        await axios.post(
-          `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/alpaca/subscribe/all/${symbol}`,
-          {},
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        // await axios.post(
+        //   `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/alpaca/subscribe/all/${symbol}`,
+        //   {},
+        //   {
+        //     headers: {
+        //       Authorization: `Bearer ${token}`,
+        //     },
+        //   }
+        // );
       };
   
       const setup = async () => {
-        await connectToMarketData(
-          (rawTrade: any) => setTrade(parseTrade(rawTrade)),
-          (rawQuote: any) => setQuote(parseQuote(rawQuote)),
-          (rawBar: any) => setBar(parseBar(rawBar))
-        );
-  
+        await connectToMarketData();
         await joinSymbolGroup('AAPL');
+    
+        registerTradeListener((rawTrade:any) => setTrade(parseTrade(rawTrade)));
+        registerQuoteListener((rawQuote:any) => setQuote(parseQuote(rawQuote)));
+        registerBarListener((rawBar:any) => setBar(parseBar(rawBar)));
       };
+    
+    
   
       subscribe();
       setup();
   
       return () => {
+        leaveSymbolGroup('AAPL');    
         disconnect();
-      };
+        };
     }, []);
   
     return (

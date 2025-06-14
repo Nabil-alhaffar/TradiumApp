@@ -5,6 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import { MaterialIcons } from '@expo/vector-icons';
 import moment from 'moment'
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axiosInstance from '@/app/services/AxiosInstance';
 interface order{
   orderId: string
   userId: string,
@@ -35,11 +36,7 @@ export default function OrdersScreen() {
       }
       try{
       
-        const response = await axios.get (`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/order/${userId}`, {
-          headers : {
-            Authorization: `Bearer ${token} `
-          }
-        });
+        const response = await axiosInstance.get (`/order/${userId}`);
         console.log("fetched orders:", response.data);
         setOrders(response.data.orders);
       } catch (error: any) {

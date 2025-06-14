@@ -14,6 +14,8 @@ import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+
+import axiosInstance from './services/AxiosInstance';
 const LoginScreen = () => {
   const router = useRouter();
   const [username, setUsername] = useState('');
@@ -26,18 +28,22 @@ const LoginScreen = () => {
     setError(null);
 
     try {
-      const response = await axios.post('https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/auth/login', {
+      const response = await axiosInstance.post('/auth/login', {
         username: username,
         password: password,
+        timeZoneId: Intl.DateTimeFormat().resolvedOptions().timeZone
       });
 
       if (response.data.token) {
         if (Platform.OS === 'web') {
           await AsyncStorage.setItem('userToken', response.data.token);
           await AsyncStorage.setItem('userId', response.data.userId);
+          await AsyncStorage.setItem('sessionId', response.data.sessionId)
         } else {
           await SecureStore.setItemAsync('userToken', response.data.token);
           await SecureStore.setItemAsync('userId', response.data.userId);
+          await SecureStore.setItemAsync('sessionId', response.data.sessionId);
+
         }
 
         Toast.show({
@@ -49,11 +55,6 @@ const LoginScreen = () => {
         router.replace('/tabs/(portfolio)/summary');
       }
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        console.error('Axios error:', error.response?.data, error.message);
-      } else {
-        console.error('Unexpected error:', error);
-      }
       console.error('Login failed:', error);
       setError('Invalid email or password');
     } finally {

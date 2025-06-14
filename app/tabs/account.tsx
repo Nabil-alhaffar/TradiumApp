@@ -7,12 +7,13 @@ import AsyncStorage  from '@react-native-async-storage/async-storage';
 import axios, { Axios } from 'axios';
 import { Alert, TextInput, Modal } from 'react-native';
 import Toast from 'react-native-toast-message';
-
+import { disconnect }  from '../services/SignalRService';
+import axiosInstance from '../services/AxiosInstance';
 interface userInfo{
     userId: string ;
     token: string;
     email: string;
-
+    sessionId:string
     username: string; 
     firstName: string;
     lastName: string;
@@ -22,6 +23,8 @@ const AccountScreen = () => {
   const [userData, setUserData]= useState <userInfo|null> (null);
   let token : string|null = null;
   let userId: string|null= null; 
+  let sessionId: string|null= null;
+
   useEffect (()=> {
     const fetchAccountData = async () => {
 
@@ -29,20 +32,19 @@ const AccountScreen = () => {
         if(Platform.OS == 'web'){
             token = await AsyncStorage.getItem('userToken');
             userId = await AsyncStorage.getItem('userId');
+            sessionId = await AsyncStorage.getItem ('sessionId');
           }
           else{
             token = await SecureStore.getItemAsync('userToken');
             userId = await SecureStore.getItemAsync('userId');
+            sessionId = await SecureStore.getItemAsync('sessionId');
+
           }
-          const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/user/${userId}`, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            }
-        })
+          const response = await axiosInstance.get(`/user/${userId}`, );
             console.log(response.data)
 
-          if (token && userId) {
-            setUserData({ userId, token, email: response.data.email, username: response.data.userName,
+          if (token && userId && sessionId) {
+            setUserData({ userId, token, email: response.data.email,sessionId: sessionId, username: response.data.userName,
                  firstName: response.data.firstName, lastName: response.data.lastName });
           }
         };
@@ -53,23 +55,37 @@ const AccountScreen = () => {
 
   const handleLogout = async () => {
 
+    const response = await axiosInstance.post('/auth/logout', {
+      sessionId: userData?.sessionId} ,
+      {
+        headers: {
+          Authorization: `Bearer ${userData?.token}`,
+        },
+      });
+
     if(Platform.OS== 'web')
     {
         
         await AsyncStorage.removeItem('userToken');
         await AsyncStorage.removeItem('userId');
+        await AsyncStorage.removeItem('sessionId');
 
     }
     else {
         await SecureStore.deleteItemAsync('userToken');
         await SecureStore.deleteItemAsync('userId');
+        await SecureStore.deleteItemAsync('sessionId');
     }
+    disconnect(); //SignalR Disconnector 
+    
     Toast.show({
       type: 'success',
       text1: `Logout successful! `,
     });
     router.replace('/login'); 
   };
+
+
   const [newPassword, setNewPassword] = useState('');
   const [isModalVisible, setIsModalVisible] = useState(false);
   const handleResetPassword = async () => {
@@ -79,14 +95,9 @@ const AccountScreen = () => {
         return;
       }
   
-      const response = await axios.patch(
-        `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/user/${userData?.userId}/reset-password`,
+      const response = await axiosInstance.patch(
+        `/user/${userData?.userId}/reset-password`,
         { newPassword },
-        {
-          headers: {
-            Authorization: `Bearer ${userData?.token}`,
-          },
-        }
       );
       Toast.show({
         type: 'success',
@@ -123,6 +134,9 @@ const AccountScreen = () => {
   
         <Text style={styles.label}>User ID</Text>
         <Text style={styles.value}>{userData?.userId}</Text>
+          
+        <Text style={styles.label}>Session ID</Text>
+        <Text style={styles.value}>{userData?.sessionId}</Text>
       </View>
   
       <View style={styles.tokenContainer}>

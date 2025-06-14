@@ -5,6 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { MaterialIcons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
+import axiosInstance from '@/app/services/AxiosInstance';
 
 interface Transfer {
   transactionId: string;
@@ -59,9 +60,7 @@ export default function TransfersScreen() {
           ? await AsyncStorage.getItem('userId')
           : await SecureStore.getItemAsync('userId');
 
-        const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/CashFlowLog/user/${userId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await axiosInstance.get(`/CashFlowLog/user/${userId}`, );
 
         setTransfers(response.data);
       } catch (error) {
@@ -123,20 +122,15 @@ export default function TransfersScreen() {
         : `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/portfolio/Withdraw-funds/${userId}?withdrawAmount=${parsedAmount}`;
       
 
-      const response = await axios.post(
+      const response = await axiosInstance.post(
         endpoint,
         null,
         // requestData,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
       );
       
 
       // Refresh transfers after successful action
-      const updatedResponse = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/CashFlowLog/user/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const updatedResponse = await axiosInstance.get(`/CashFlowLog/user/${userId}`);
       setTransfers(updatedResponse.data);
       Toast.show({
         type: 'success',

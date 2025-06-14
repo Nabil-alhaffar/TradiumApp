@@ -4,6 +4,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { MaterialIcons } from '@expo/vector-icons';
+import axiosInstance from '@/app/services/AxiosInstance';
 
 
 interface Position {
@@ -50,9 +51,7 @@ let token: string | null = null;
 let userId: string | null = null;
 
 const fetchPositionSummary = async (symbol: string) => {
-  const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Position/${userId}/get-position-summary/${symbol}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await axiosInstance.get(`/Position/${userId}/get-position-summary/${symbol}`);
   return response.data;
 };
 
@@ -76,8 +75,8 @@ const PortfolioScreen = () => {
         : await SecureStore.getItemAsync('userId');
 
       const [portfolioRes, summaryRes] = await Promise.all([
-        axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/portfolio/${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/portfolio/summary/${userId}`, { headers: { Authorization: `Bearer ${token}` } }),
+        axiosInstance.get(`/portfolio/${userId}`),
+        axiosInstance.get(`/portfolio/summary/${userId}`),
       ]);
 
       setPortfolio(portfolioRes.data.portfolio);

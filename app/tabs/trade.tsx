@@ -20,6 +20,7 @@ import * as SecureStore from 'expo-secure-store';
 import Toast from 'react-native-toast-message';
 import { white } from 'react-native-paper/lib/typescript/styles/themes/v2/colors';
 import StockChart from '../../components/StockChart/StockChart'
+import axiosInstance from '../services/AxiosInstance';
 interface stock {
   symbol: string;
   companyName: string;
@@ -99,14 +100,7 @@ const TradeScreen = () => {
 
   const fetchStock = async () => {
     try {
-      const overviewResponse = await axios.get(
-        `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/AlphaVantageStockMarket/getStock/${searchedSymbol}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const overviewResponse = await axiosInstance.get( `/AlphaVantageStockMarket/getStock/${searchedSymbol}`);
       console.log(overviewResponse);
       setStock({
         ...overviewResponse.data.stock,
@@ -127,17 +121,11 @@ const TradeScreen = () => {
     if (!token || !stock || !selectedOrderType) return;
 
     try {
-       const response = await axios.post(
-        `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Stock/execute-trade`,
+       const response = await axiosInstance.post( `/Stock/execute-trade`,
         {
           symbol: stock.symbol,
           quantity: parseInt(quantity),
           type: selectedOrderType,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
         }
       );
       console.log(response.data);
@@ -170,9 +158,8 @@ const TradeScreen = () => {
     console.log("fetching position");
   
     try {
-      const response = await axios.get(`https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/Portfolio/Positions/${userId}/${searchedSymbol}`, {
-        headers: { Authorization: `Bearer ${token} ` }
-      });
+      const response = await axiosInstance.get(`/Portfolio/Positions/${userId}/${searchedSymbol}`, 
+      );
   
       if (response.data) {
         setPosition(response.data);
