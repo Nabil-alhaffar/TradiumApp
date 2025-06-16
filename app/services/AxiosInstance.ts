@@ -58,9 +58,12 @@ axiosInstance.interceptors.response.use(
   
           const newToken = refreshResponse.data.token;
           if (!newToken) throw new Error('No new token returned');
-  
-          await SecureStore.setItemAsync('userToken', newToken);
-  
+          
+          Platform.OS === 'web'
+          ? await AsyncStorage.setItem('userToken', newToken)
+          : await SecureStore.setItemAsync('userToken', newToken);
+        //   await SecureStore.setItemAsync('userToken', newToken);
+          
           // Update the original request’s Authorization header
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return axiosInstance(originalRequest);

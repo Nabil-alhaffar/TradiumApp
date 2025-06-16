@@ -1,7 +1,7 @@
 import { ThemedText } from '@/components/ThemedText';
 import axios from 'axios';
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform, TextInput, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as SignalRService from '../../app/services/SignalRService';
@@ -9,6 +9,7 @@ import { LineChart, LineChartProvider } from 'react-native-wagmi-charts';
 import axiosInstance from '../services/AxiosInstance';
 
 interface Watchlist {
+  id: string;
   symbols: string[];
   name: string;
 }
@@ -61,31 +62,33 @@ const WatchlistScreen = () => {
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [prevCloses, setPrevCloses] = useState<PrevCloseData>({});
   const [chartData, setChartData] = useState<ChartData>({});
+  const [newWatchlistName, setNewWatchlistName] = useState('');
+  const [newSymbol, setNewSymbol] = useState('');
+  const [showAddWatchlist, setShowAddWatchlist] = useState(false);
+  const [showAddSymbol, setShowAddSymbol] = useState(false);
 
-  useEffect(() => {
-    const fetchWatchlistsAndSnapshots = async () => {
-      try {
-        if (Platform.OS === 'web') {
-          token = await AsyncStorage.getItem('userToken');
-          userId = await AsyncStorage.getItem('userId');
-        } else {
-          token = await SecureStore.getItemAsync('userToken');
-          userId = await SecureStore.getItemAsync('userId');
-        }
+  const fetchWatchlistsAndSnapshots = async () => {
+    try {
+      if (Platform.OS === 'web') {
+        token = await AsyncStorage.getItem('userToken');
+        userId = await AsyncStorage.getItem('userId');
+      } else {
+        token = await SecureStore.getItemAsync('userToken');
+        userId = await SecureStore.getItemAsync('userId');
+      }
 
-        const response = await axiosInstance.get(
-          `/watchlists/${userId}`
-        );
-        const fetchedWatchlists: Watchlist[] = response.data;
-        setWatchlists(fetchedWatchlists);
+      const response = await axiosInstance.get(
+        `/watchlists/${userId}`
+      );
+      const fetchedWatchlists: Watchlist[] = response.data;
+      setWatchlists(fetchedWatchlists);
 
-        const allSymbols = Array.from(new Set(fetchedWatchlists.flatMap(w => w.symbols)));
-        if(allSymbols.length>0){
+      const allSymbols = Array.from(new Set(fetchedWatchlists.flatMap(w => w.symbols)));
+      if (allSymbols.length > 0) {
         const snapshotResponse = await axiosInstance.get<SnapshotResponse>(
           '/alpaca/snapshots',
           {
             params: { symbols: allSymbols },
-          
           }
         );
       
@@ -120,20 +123,92 @@ const WatchlistScreen = () => {
           await SignalRService.joinSymbolGroup(symbol);
         }
       }
-      } catch (error) {
-        console.error('Error loading data:', error);
-        setError(error instanceof Error ? error.message : 'Unknown error');
-      } finally {
-        setLoading(false);
-      }
-    };
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchWatchlistsAndSnapshots();
 
     return () => {
       SignalRService.disconnect();
     };
   }, []);
+
+  const handleAddWatchlist = async () => {
+    if (!newWatchlistName.trim()) {
+      Alert.alert('Error', 'Please enter a watchlist name');
+      return;
+    }
+
+    try {
+      const response = await axiosInstance.post(
+        `/watchlists/${userId}`,
+        { name: newWatchlistName }
+      );
+      
+      const newWatchlist: Watchlist = response.data;
+      setWatchlists(prev => [...(prev || []), newWatchlist]);
+      setNewWatchlistName('');
+      setShowAddWatchlist(false);
+      setCurrentIndex((watchlists?.length || 0));
+    } catch (error) {
+      Alert.alert('Error', 'Failed to create watchlist');
+      console.error('Error creating watchlist:', error);
+    }
+  };
+
+  const handleAddSymbol = async () => {
+    if (!newSymbol.trim()) {
+      Alert.alert('Error', 'Please enter a symbol');
+      return;
+    }
+
+    if (!watchlists || watchlists.length === 0) {
+      Alert.alert('Error', 'No watchlist available to add symbol to');
+      return;
+    }
+
+    const currentWatchlist = watchlists[currentIndex];
+    
+    try {
+      await axiosInstance.post(
+        `/watchlists/${userId}/${currentWatchlist.id}/add-symbol`,
+        { symbol: newSymbol.toUpperCase() }
+      );
+      
+      // Refresh the watchlists
+      await fetchWatchlistsAndSnapshots();
+      setNewSymbol('');
+      setShowAddSymbol(false);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to add symbol to watchlist');
+      console.error('Error adding symbol:', error);
+    }
+  };
+
+  const handleRemoveSymbol = async (symbol: string) => {
+    if (!watchlists || watchlists.length === 0) return;
+
+    const currentWatchlist = watchlists[currentIndex];
+    
+    try {
+      await axiosInstance.post(
+        `/watchlists/${userId}/${currentWatchlist.id}/remove-symbol`,
+        { symbol }
+      );
+      
+      // Refresh the watchlists
+      await fetchWatchlistsAndSnapshots();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to remove symbol from watchlist');
+      console.error('Error removing symbol:', error);
+    }
+  };
 
   if (loading) {
     return (
@@ -154,8 +229,40 @@ const WatchlistScreen = () => {
 
   if (!watchlists || watchlists.length === 0) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>No watchlists available</Text>
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>You don't have any watchlists yet</Text>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => setShowAddWatchlist(true)}
+        >
+          <Text style={styles.addButtonText}>Create New Watchlist</Text>
+        </TouchableOpacity>
+
+        {showAddWatchlist && (
+          <View style={styles.addForm}>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter watchlist name"
+              placeholderTextColor="#999"
+              value={newWatchlistName}
+              onChangeText={setNewWatchlistName}
+            />
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.cancelButton]}
+                onPress={() => setShowAddWatchlist(false)}
+              >
+                <Text style={styles.actionButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.submitButton]}
+                onPress={handleAddWatchlist}
+              >
+                <Text style={styles.actionButtonText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
     );
   }
@@ -182,51 +289,135 @@ const WatchlistScreen = () => {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.actionsContainer}>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => setShowAddWatchlist(true)}
+        >
+          <Text style={styles.addButtonText}>+ Watchlist</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => setShowAddSymbol(true)}
+        >
+          <Text style={styles.addButtonText}>+ Symbol</Text>
+        </TouchableOpacity>
+      </View>
+
+      {(showAddWatchlist || showAddSymbol) && (
+        <View style={styles.addForm}>
+          {showAddWatchlist && (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter watchlist name"
+                placeholderTextColor="#999"
+                value={newWatchlistName}
+                onChangeText={setNewWatchlistName}
+              />
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.cancelButton]}
+                  onPress={() => setShowAddWatchlist(false)}
+                >
+                  <Text style={styles.actionButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.submitButton]}
+                  onPress={handleAddWatchlist}
+                >
+                  <Text style={styles.actionButtonText}>Create</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {showAddSymbol && (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter symbol (e.g., AAPL)"
+                placeholderTextColor="#999"
+                value={newSymbol}
+                onChangeText={setNewSymbol}
+                autoCapitalize="characters"
+              />
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.cancelButton]}
+                  onPress={() => setShowAddSymbol(false)}
+                >
+                  <Text style={styles.actionButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.submitButton]}
+                  onPress={handleAddSymbol}
+                >
+                  <Text style={styles.actionButtonText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
       <ScrollView style={styles.symbolList}>
-        {currentWatchlist.symbols.map((symbol, index) => {
-          const quote = quotes[symbol];
-          const prevClose = prevCloses[symbol];
-          const realTimePrice = quote ? (quote.AskPrice + quote.BidPrice) / 2 : null;
-          const fallbackPrice = prevClose ?? null;
-          const price = realTimePrice ?? fallbackPrice;
+        {currentWatchlist.symbols.length === 0 ? (
+          <View style={styles.emptySymbolsContainer}>
+            <Text style={styles.emptySymbolsText}>No symbols in this watchlist</Text>
+          </View>
+        ) : (
+          currentWatchlist.symbols.map((symbol, index) => {
+            const quote = quotes[symbol];
+            const prevClose = prevCloses[symbol];
+            const realTimePrice = quote ? (quote.AskPrice + quote.BidPrice) / 2 : null;
+            const fallbackPrice = prevClose ?? null;
+            const price = realTimePrice ?? fallbackPrice;
 
-          let changePercent = null;
-          if (price != null && prevClose != null) {
-            changePercent = ((price - prevClose) / prevClose) * 100;
-          }
+            let changePercent = null;
+            if (price != null && prevClose != null) {
+              changePercent = ((price - prevClose) / prevClose) * 100;
+            }
 
-          const displayPrice = price?.toFixed(2) ?? '-';
-          const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
-          const color =
-            changePercent == null
-              ? '#fff'
-              : changePercent > 0
-              ? '#00ff00'
-              : '#ff4d4d';
+            const displayPrice = price?.toFixed(2) ?? '-';
+            const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
+            const color =
+              changePercent == null
+                ? '#fff'
+                : changePercent > 0
+                ? '#00ff00'
+                : '#ff4d4d';
 
-          const lineData = chartData[symbol];
+            const lineData = chartData[symbol];
 
-          return (
-            <View key={index} style={styles.symbolItem}>
-              <Text style={styles.symbolText}>{symbol}</Text>
-              <Text style={{ color }}>{displayPrice} ({displayChange})</Text>
-              {lineData && (
-                <LineChartProvider data={{ points: lineData }}>
-                  <LineChart height={40} width={200}>
-                    <LineChart.Path color="#00ffcc" width={2} />
-                    <LineChart.Dot color="#00ffcc" at={2}/>
-                  </LineChart>
-                </LineChartProvider>
-              )}
-            </View>
-          );
-        })}
+            return (
+              <View key={index} style={styles.symbolItem}>
+                <View style={styles.symbolHeader}>
+                  <Text style={styles.symbolText}>{symbol}</Text>
+                  <TouchableOpacity
+                    style={styles.removeButton}
+                    onPress={() => handleRemoveSymbol(symbol)}
+                  >
+                    <Text style={styles.removeButtonText}>×</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ color }}>{displayPrice} ({displayChange})</Text>
+                {lineData && (
+                  <LineChartProvider data={{ points: lineData }}>
+                    <LineChart height={40} width={200}>
+                      <LineChart.Path color="#00ffcc" width={2} />
+                      <LineChart.Dot color="#00ffcc" at={2}/>
+                    </LineChart>
+                  </LineChartProvider>
+                )}
+              </View>
+            );
+          })
+        )}
       </ScrollView>
     </View>
   );
 };
-
-export default WatchlistScreen;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212', padding: 16 },
@@ -235,7 +426,38 @@ const styles = StyleSheet.create({
   text: { color: '#ccc', fontSize: 16 },
   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   errorText: { color: '#ff4d4d', fontSize: 16 },
-  navContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  emptyContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#ccc',
+    fontSize: 18,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  emptySymbolsContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptySymbolsText: {
+    color: '#ccc',
+    fontSize: 16,
+  },
+  navContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 20 
+  },
+  actionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 15,
+  },
   navButton: {
     padding: 10,
     backgroundColor: '#1e90ff',
@@ -255,8 +477,329 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  symbolHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
   symbolText: { fontSize: 18, fontWeight: 'bold', color: '#FFD700' },
+  addButton: {
+    backgroundColor: '#1e90ff',
+    padding: 10,
+    borderRadius: 8,
+    marginHorizontal: 5,
+  },
+  addButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  addForm: {
+    backgroundColor: '#1e1e1e',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  input: {
+    backgroundColor: '#2a2a2a',
+    color: '#fff',
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  actionButton: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  submitButton: {
+    backgroundColor: '#1e90ff',
+  },
+  cancelButton: {
+    backgroundColor: '#ff4d4d',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  removeButton: {
+    padding: 5,
+  },
+  removeButtonText: {
+    color: '#ff4d4d',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
 });
+
+export default WatchlistScreen;
+
+
+// import { ThemedText } from '@/components/ThemedText';
+// import axios from 'axios';
+// import React, { useEffect, useState } from 'react';
+// import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform } from 'react-native';
+// import AsyncStorage from '@react-native-async-storage/async-storage';
+// import * as SecureStore from 'expo-secure-store';
+// import * as SignalRService from '../../app/services/SignalRService';
+// import { LineChart, LineChartProvider } from 'react-native-wagmi-charts';
+// import axiosInstance from '../services/AxiosInstance';
+
+// interface Watchlist {
+//   symbols: string[];
+//   name: string;
+// }
+// interface SnapshotResponse {
+//   snapshots: string; // JSON string that needs parsing
+// }
+
+// interface Snapshot {
+//   dailyBar?: {
+//     c: number; // current day's close (or latest daily price)
+//     t: string; // timestamp
+//   };
+//   prevDailyBar?: {
+//     c: number; // previous close
+//   };
+//   latestQuote?: {
+//     ap: number; // ask price
+//     bp: number; // bid price
+//   };
+//   // ... other fields
+// }
+
+// interface Quote {
+//   Symbol: string;
+//   BidPrice: number;
+//   AskPrice: number;
+// }
+
+// const parseQuote = (raw: any): Quote => ({
+//   Symbol: raw.s,
+//   AskPrice: raw.ap,
+//   BidPrice: raw.bp,
+// });
+
+// interface PrevCloseData {
+//   [symbol: string]: number;
+// }
+// interface ChartData {
+//   [symbol: string]: { timestamp: number; value: number }[];
+// }
+
+// let token: string | null = null;
+// let userId: string | null = null;
+
+// const WatchlistScreen = () => {
+//   const [watchlists, setWatchlists] = useState<Watchlist[] | null>(null);
+//   const [loading, setLoading] = useState(true);
+//   const [error, setError] = useState<string | null>(null);
+//   const [currentIndex, setCurrentIndex] = useState(0);
+//   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+//   const [prevCloses, setPrevCloses] = useState<PrevCloseData>({});
+//   const [chartData, setChartData] = useState<ChartData>({});
+
+//   useEffect(() => {
+//     const fetchWatchlistsAndSnapshots = async () => {
+//       try {
+//         if (Platform.OS === 'web') {
+//           token = await AsyncStorage.getItem('userToken');
+//           userId = await AsyncStorage.getItem('userId');
+//         } else {
+//           token = await SecureStore.getItemAsync('userToken');
+//           userId = await SecureStore.getItemAsync('userId');
+//         }
+
+//         const response = await axiosInstance.get(
+//           `/watchlists/${userId}`
+//         );
+//         const fetchedWatchlists: Watchlist[] = response.data;
+//         setWatchlists(fetchedWatchlists);
+
+//         const allSymbols = Array.from(new Set(fetchedWatchlists.flatMap(w => w.symbols)));
+//         if(allSymbols.length>0){
+//         const snapshotResponse = await axiosInstance.get<SnapshotResponse>(
+//           '/alpaca/snapshots',
+//           {
+//             params: { symbols: allSymbols },
+          
+//           }
+//         );
+      
+//         const parsedSnapshots: Record<string, Snapshot> = JSON.parse(snapshotResponse.data.snapshots);
+
+//         const closes: PrevCloseData = {};
+//         const chart: ChartData = {};
+
+//         for (const symbol of allSymbols) {
+//           closes[symbol] = parsedSnapshots[symbol]?.prevDailyBar?.c ?? null;
+
+//           // Generate sample chart data from minuteBars if available
+//           const bars = parsedSnapshots[symbol]?.minuteBars;
+//           if (bars) {
+//             chart[symbol] = bars.map(b => ({
+//               timestamp: new Date(b.t).getTime(),
+//               value: b.c,
+//             }));
+//           }
+//         }
+
+//         setPrevCloses(closes);
+//         setChartData(chart);
+
+//         await SignalRService.connectToMarketData();
+//         SignalRService.registerQuoteListener((rawQuote: any) => {
+//           const parsed = parseQuote(rawQuote);
+//           setQuotes(prev => ({ ...prev, [parsed.Symbol]: parsed }));
+//         });
+
+//         for (const symbol of allSymbols) {
+//           await SignalRService.joinSymbolGroup(symbol);
+//         }
+//       }
+//       } catch (error) {
+//         console.error('Error loading data:', error);
+//         setError(error instanceof Error ? error.message : 'Unknown error');
+//       } finally {
+//         setLoading(false);
+//       }
+//     };
+
+//     fetchWatchlistsAndSnapshots();
+
+//     return () => {
+//       SignalRService.disconnect();
+//     };
+//   }, []);
+
+//   if (loading) {
+//     return (
+//       <View style={styles.loader}>
+//         <ActivityIndicator size="large" color="#00ffcc" />
+//         <Text style={styles.text}>Loading watchlists...</Text>
+//       </View>
+//     );
+//   }
+
+//   if (error) {
+//     return (
+//       <View style={styles.errorContainer}>
+//         <Text style={styles.errorText}>Failed to load watchlists: {error}</Text>
+//       </View>
+//     );
+//   }
+
+//   if (!watchlists || watchlists.length === 0) {
+//     return (
+//       <View style={styles.errorContainer}>
+//         <Text style={styles.errorText}>No watchlists available</Text>
+//       </View>
+//     );
+//   }
+
+//   const currentWatchlist = watchlists[currentIndex];
+
+//   return (
+//     <View style={styles.container}>
+//       <View style={styles.navContainer}>
+//         <TouchableOpacity
+//           onPress={() => setCurrentIndex(prev => Math.max(prev - 1, 0))}
+//           disabled={currentIndex === 0}
+//           style={[styles.navButton, currentIndex === 0 && styles.disabledButton]}
+//         >
+//           <Text style={styles.navText}>◀</Text>
+//         </TouchableOpacity>
+//         <Text style={styles.title}>{currentWatchlist.name}</Text>
+//         <TouchableOpacity
+//           onPress={() => setCurrentIndex(prev => Math.min(prev + 1, watchlists.length - 1))}
+//           disabled={currentIndex === watchlists.length - 1}
+//           style={[styles.navButton, currentIndex === watchlists.length - 1 && styles.disabledButton]}
+//         >
+//           <Text style={styles.navText}>▶</Text>
+//         </TouchableOpacity>
+//       </View>
+
+//       <ScrollView style={styles.symbolList}>
+//         {currentWatchlist.symbols.map((symbol, index) => {
+//           const quote = quotes[symbol];
+//           const prevClose = prevCloses[symbol];
+//           const realTimePrice = quote ? (quote.AskPrice + quote.BidPrice) / 2 : null;
+//           const fallbackPrice = prevClose ?? null;
+//           const price = realTimePrice ?? fallbackPrice;
+
+//           let changePercent = null;
+//           if (price != null && prevClose != null) {
+//             changePercent = ((price - prevClose) / prevClose) * 100;
+//           }
+
+//           const displayPrice = price?.toFixed(2) ?? '-';
+//           const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
+//           const color =
+//             changePercent == null
+//               ? '#fff'
+//               : changePercent > 0
+//               ? '#00ff00'
+//               : '#ff4d4d';
+
+//           const lineData = chartData[symbol];
+
+//           return (
+//             <View key={index} style={styles.symbolItem}>
+//               <Text style={styles.symbolText}>{symbol}</Text>
+//               <Text style={{ color }}>{displayPrice} ({displayChange})</Text>
+//               {lineData && (
+//                 <LineChartProvider data={{ points: lineData }}>
+//                   <LineChart height={40} width={200}>
+//                     <LineChart.Path color="#00ffcc" width={2} />
+//                     <LineChart.Dot color="#00ffcc" at={2}/>
+//                   </LineChart>
+//                 </LineChartProvider>
+//               )}
+//             </View>
+//           );
+//         })}
+//       </ScrollView>
+//     </View>
+//   );
+// };
+
+// export default WatchlistScreen;
+
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: '#121212', padding: 16 },
+//   title: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 10, textAlign: 'center' },
+//   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+//   text: { color: '#ccc', fontSize: 16 },
+//   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+//   errorText: { color: '#ff4d4d', fontSize: 16 },
+//   navContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+//   navButton: {
+//     padding: 10,
+//     backgroundColor: '#1e90ff',
+//     borderRadius: 8,
+//   },
+//   disabledButton: { backgroundColor: '#555' },
+//   navText: { fontSize: 20, color: '#fff' },
+//   symbolList: { marginTop: 10 },
+//   symbolItem: {
+//     padding: 12,
+//     backgroundColor: '#1e1e1e',
+//     marginBottom: 8,
+//     borderRadius: 8,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.3,
+//     shadowRadius: 4,
+//     elevation: 5,
+//   },
+//   symbolText: { fontSize: 18, fontWeight: 'bold', color: '#FFD700' },
+// });
 
 
 // import { ThemedText } from '@/components/ThemedText';
