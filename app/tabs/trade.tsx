@@ -7,25 +7,20 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  Modal,
-  Pressable,
-  Image,
   Platform,
-  Alert,
   TouchableWithoutFeedback,
   findNodeHandle,
+  Image,
 } from 'react-native';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-// import PortfolioScreen from './portfolio';
 import Toast from 'react-native-toast-message';
-import { white } from 'react-native-paper/lib/typescript/styles/themes/v2/colors';
-import StockChart from '../../components/StockChart/StockChart'
+import StockChart from '../../components/StockChart/StockChart';
 import axiosInstance from '../services/AxiosInstance';
 import { format, parseISO } from 'date-fns';
 import { debounce } from 'lodash';
 import { Portal, Provider as PaperProvider } from 'react-native-paper';
+import FloatingTradePanel from '../../components/FloatingTradePanel';
 
 interface FinnhubProfile {
   name: string;
@@ -282,14 +277,8 @@ const TradeScreen = () => {
   const [stock, setStock] = useState<Stock | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [selectedOrderType, setSelectedOrderType] = useState('');
-  const [quantity, setQuantity] = useState('1');
-
-  const [isExistingPosition,setIsExistingPosition] = useState (false);  
-  const [position, setPosition] = useState <Position| null> (null);
-
+  const [isExistingPosition, setIsExistingPosition] = useState(false);
+  const [position, setPosition] = useState<Position | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Price Returns');
   const [isMetricsExpanded, setIsMetricsExpanded] = useState(false);
   const [financials, setFinancials] = useState<FinnhubMetrics | null>(null);
@@ -299,11 +288,9 @@ const TradeScreen = () => {
   const [recommendations, setRecommendations] = useState<AnalystRecommendation[]>([]);
   const [isEarningsExpanded, setIsEarningsExpanded] = useState(false);
   const [isRecommendationsExpanded, setIsRecommendationsExpanded] = useState(false);
-
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-
   const [inputLayout, setInputLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const searchContainerRef = useRef<View>(null);
 
@@ -430,43 +417,34 @@ const TradeScreen = () => {
     }
   };
 
-  const executeTrade = async () => {
-    if (!token || !stock || !selectedOrderType) return;
+  const handleTrade = async (type: string, quantity: string) => {
+    if (!token || !stock) return;
 
     try {
-       const response = await axiosInstance.post( `/Stock/execute-trade`,
-        {
-          symbol: stock.symbol,
-          quantity: parseInt(quantity),
-          type: selectedOrderType,
-        }
-      );
-      console.log(response.data);
+      const response = await axiosInstance.post('/Stock/execute-trade', {
+        symbol: stock.symbol,
+        quantity: parseInt(quantity),
+        side: type,
+      });
+
       Toast.show({
         type: 'success',
-        text1: `${selectedOrderType} order placed. `,
+        text1: `${type} order placed.`,
         text2: `${response.data.message}`,
       });
-      Alert.alert('Success', `${selectedOrderType} order placed.: ${response.data.message}` );
-      setIsModalVisible(false);
-      setSelectedOrderType('');
-      setQuantity('1');
-      await fetchExistingPosition();
 
-    } catch (err:any) {
+      await fetchExistingPosition();
+    } catch (err: any) {
       console.error('Trade error:', err);
-      const errorMessage =
-        err?.response?.data?.message ||
-        err?.message ||
-      'An unexpected error occurred.';
+      const errorMessage = err?.response?.data?.message || err?.message || 'An unexpected error occurred.';
       Toast.show({
         type: 'error',
-        text1:  'Failed to execute trade.',
+        text1: 'Failed to execute trade.',
         text2: `${errorMessage}`,
       });
-      Alert.alert('Error', 'Failed to execute trade.');
     }
   };
+
   const fetchExistingPosition = async () => {
     console.log("fetching position");
   
@@ -490,447 +468,415 @@ const TradeScreen = () => {
   
   return (
     <PaperProvider>
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 50 }}>
-        <View 
-          ref={searchContainerRef}
-          style={styles.lookUpInterface}
-          onLayout={measureInputPosition}
-        >
-          <TextInput
-            style={styles.inputField}
-            onChangeText={handleSearchChange}
-            placeholder="Search by symbol or company name"
-            placeholderTextColor="#aaa"
-            value={searchQuery}
-            onFocus={() => {
-              setShowSuggestions(true);
-              measureInputPosition();
-            }}
-          />
-          <TouchableOpacity style={styles.lookUpButton} onPress={fetchStock}>
-            <IconSymbol size={28} name="search" color="#000" />
-          </TouchableOpacity>
-        </View>
+      <View style={{ flex: 1, position: 'relative' }}>
+        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 50 }}>
+          <View 
+            ref={searchContainerRef}
+            style={styles.lookUpInterface}
+            onLayout={measureInputPosition}
+          >
+            <TextInput
+              style={styles.inputField}
+              onChangeText={handleSearchChange}
+              placeholder="Search by symbol or company name"
+              placeholderTextColor="#aaa"
+              value={searchQuery}
+              onFocus={() => {
+                setShowSuggestions(true);
+                measureInputPosition();
+              }}
+            />
+            <TouchableOpacity style={styles.lookUpButton} onPress={fetchStock}>
+              <IconSymbol size={28} name="magnifyingglass" color="#000" />
+            </TouchableOpacity>
+          </View>
 
-        <Portal>
-          {showSuggestions && suggestions.length > 0 && (
-            <TouchableWithoutFeedback onPress={() => setShowSuggestions(false)}>
-              <View style={StyleSheet.absoluteFill}>
-                <View 
-                  style={[
-                    styles.suggestionsContainer,
-                    {
-                      position: 'absolute',
-                      top: inputLayout.y + inputLayout.height + 4,
-                      left: inputLayout.x,
-                      width: inputLayout.width,
-                    }
-                  ]}
-                >
-                  <ScrollView 
-                    style={styles.suggestionsList} 
-                    keyboardShouldPersistTaps="handled"
-                    nestedScrollEnabled
+          <Portal>
+            {showSuggestions && suggestions.length > 0 && (
+              <TouchableWithoutFeedback onPress={() => setShowSuggestions(false)}>
+                <View style={StyleSheet.absoluteFill}>
+                  <View 
+                    style={[
+                      styles.suggestionsContainer,
+                      {
+                        position: 'absolute',
+                        top: inputLayout.y + inputLayout.height + 4,
+                        left: inputLayout.x,
+                        width: inputLayout.width,
+                      }
+                    ]}
                   >
-                    {suggestions.map((suggestion) => (
-                      <TouchableOpacity
-                        key={suggestion.symbol}
-                        style={styles.suggestionItem}
-                        onPress={() => handleSuggestionPress(suggestion)}
-                      >
-                        <View style={styles.suggestionContent}>
-                          <View style={styles.suggestionMain}>
-                            <Text style={styles.symbolText}>{suggestion.symbol}</Text>
-                            <Text style={styles.exchangeText}>{suggestion.exchange}</Text>
+                    <ScrollView 
+                      style={styles.suggestionsList} 
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled
+                    >
+                      {suggestions.map((suggestion) => (
+                        <TouchableOpacity
+                          key={suggestion.symbol}
+                          style={styles.suggestionItem}
+                          onPress={() => handleSuggestionPress(suggestion)}
+                        >
+                          <View style={styles.suggestionContent}>
+                            <View style={styles.suggestionMain}>
+                              <Text style={styles.symbolText}>{suggestion.symbol}</Text>
+                              <Text style={styles.exchangeText}>{suggestion.exchange}</Text>
+                            </View>
+                            <Text style={styles.nameText} numberOfLines={1}>
+                              {suggestion.name}
+                            </Text>
                           </View>
-                          <Text style={styles.nameText} numberOfLines={1}>
-                            {suggestion.name}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          )}
-        </Portal>
-
-        {stock && (
-          <>
-            {/* Stock Info Card */}
-            <View style={styles.stockCard}>
-              {stock.logoURL && (
-                <Image
-                  source={{ uri: stock.logoURL }}
-                  style={{ width: 100, height: 100, marginTop: 10, marginBottom: 50, alignSelf: 'center' }}
-                  resizeMode="contain"
-                />
-              )}
-              {Object.entries({
-                Symbol: stock.symbol,
-                Company: stock.companyName,
-                'Current Price': `$${stock.currentPrice.toFixed(2)}`,
-                Country: stock.country,
-                'Market Value': stock.marketValue ? `$${stock.marketValue.toLocaleString()}` : 'N/A',
-                '52 Week High': `$${stock.high52Week.toFixed(2)}`,
-                '52 Week Low': `$${stock.low52Week.toFixed(2)}`,
-                EPS: stock.eps.toFixed(2),
-                Sector: stock.stockSector,
-                Exchange: stock.exchange,
-                'Official Site': stock.officialSite,
-              }).reduce((rows, entry, index) => {
-                const rowIndex = Math.floor(index / 3);
-                if (!rows[rowIndex]) rows[rowIndex] = [];
-                rows[rowIndex].push(entry);
-                return rows;
-              }, [] as [string, any][][]).map((row, rowIndex) => (
-                <View key={rowIndex} style={styles.cardRowMulti}>
-                  {row.map(([label, value]) => (
-                    <View key={label} style={{ flex: 1 }}>
-                      <Text style={styles.cardLabel}>{label}</Text>
-                      <Text style={styles.cardValue}>{value}</Text>
-                    </View>
-                  ))}
-                </View>
-              ))}
-
-              <Text style={styles.stockDescription}>{stock.description}</Text>
-            </View>
-
-            {/* Financial Metrics Dropdown */}
-            <View style={styles.metricsContainer}>
-              <TouchableOpacity
-                style={styles.metricsHeader}
-                onPress={() => setIsMetricsExpanded(!isMetricsExpanded)}
-              >
-                <Text style={styles.metricsHeaderText}>Financial Metrics</Text>
-                <Text style={styles.expandIcon}>{isMetricsExpanded ? '▼' : '▶'}</Text>
-              </TouchableOpacity>
-
-              {isMetricsExpanded && (
-                <View style={styles.metricsContent}>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-                    {Object.keys(metricCategories).map((category) => (
-                      <TouchableOpacity
-                        key={category}
-                        style={[
-                          styles.categoryTab,
-                          selectedCategory === category && styles.selectedCategoryTab,
-                        ]}
-                        onPress={() => setSelectedCategory(category)}
-                      >
-                        <Text style={[
-                          styles.categoryTabText,
-                          selectedCategory === category && styles.selectedCategoryTabText,
-                        ]}>
-                          {category}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-
-                  <View style={styles.metricsGrid}>
-                    {financials && metricCategories[selectedCategory]?.map(({ key, label }) => {
-                      const value = financials.metric[key];
-                      const isPercentage = key.toLowerCase().includes('margin') || key.toLowerCase().includes('return');
-                      return (
-                        <View key={key} style={styles.metricItem}>
-                          <Text style={styles.metricLabel}>{label}</Text>
-                          <Text style={styles.metricValue}>
-                            {typeof value === 'number' ? value.toFixed(2) : value}
-                            {isPercentage ? '%' : ''}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
                   </View>
                 </View>
-              )}
-            </View>
+              </TouchableWithoutFeedback>
+            )}
+          </Portal>
 
-            {/* News Section */}
-            <View style={styles.newsContainer}>
-              <TouchableOpacity
-                style={styles.newsHeader}
-                onPress={() => setIsNewsExpanded(!isNewsExpanded)}
-              >
-                <Text style={styles.newsHeaderText}>Latest News</Text>
-                <Text style={styles.expandIcon}>{isNewsExpanded ? '▼' : '▶'}</Text>
-              </TouchableOpacity>
-
-              {isNewsExpanded && (
-                <View style={styles.newsContent}>
-                  <ScrollView style={styles.newsList}>
-                    {news.map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={styles.newsItem}
-                        onPress={() => {
-                          if (Platform.OS === 'web') {
-                            window.open(item.url, '_blank');
-                          }
-                        }}
-                      >
-                        <View style={styles.newsItemHeader}>
-                          <Text style={styles.newsSource}>{item.source}</Text>
-                          <Text style={styles.newsAuthor}>{item.author}</Text>
-                        </View>
-                        <Text style={styles.newsHeadline}>{item.headline}</Text>
-                        <Text style={styles.newsSummary} numberOfLines={2}>
-                          {item.summary}
-                        </Text>
-                        <View style={styles.newsSymbols}>
-                          {item.symbols.map((symbol) => (
-                            <View key={symbol} style={styles.symbolTag}>
-                              <Text style={styles.symbolTagText}>{symbol}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-            </View>
-
-            {/* Earnings Calendar Section */}
-            <View style={styles.earningsContainer}>
-              <TouchableOpacity
-                style={styles.sectionHeader}
-                onPress={() => setIsEarningsExpanded(!isEarningsExpanded)}
-              >
-                <Text style={styles.sectionHeaderText}>Earnings Calendar</Text>
-                <Text style={styles.expandIcon}>{isEarningsExpanded ? '▼' : '▶'}</Text>
-              </TouchableOpacity>
-
-              {isEarningsExpanded && (
-                <View style={styles.earningsContent}>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    {earnings.map((earning) => (
-                      <View key={`${earning.date}-${earning.quarter}`} style={styles.earningCard}>
-                        <Text style={styles.earningDate}>
-                          {format(parseISO(earning.date), 'MMM d, yyyy')}
-                        </Text>
-                        <Text style={styles.earningHour}>{getMarketHour(earning.hour)}</Text>
-                        <Text style={styles.earningQuarter}>Q{earning.quarter}</Text>
-                        <View style={styles.earningMetric}>
-                          <Text style={styles.metricLabel}>EPS Est.</Text>
-                          <Text style={styles.metricValue}>${earning.epsEstimate.toFixed(2)}</Text>
-                          {earning.epsActual && (
-                            <Text style={[
-                              styles.metricActual,
-                              { color: earning.epsActual >= earning.epsEstimate ? '#4CAF50' : '#FF5252' }
-                            ]}>
-                              Actual: ${earning.epsActual.toFixed(2)}
-                            </Text>
-                          )}
-                        </View>
-                        <View style={styles.earningMetric}>
-                          <Text style={styles.metricLabel}>Revenue Est.</Text>
-                          <Text style={styles.metricValue}>{formatCurrency(earning.revenueEstimate)}</Text>
-                          {earning.revenueActual && (
-                            <Text style={[
-                              styles.metricActual,
-                              { color: earning.revenueActual >= earning.revenueEstimate ? '#4CAF50' : '#FF5252' }
-                            ]}>
-                              Actual: {formatCurrency(earning.revenueActual)}
-                            </Text>
-                          )}
-                        </View>
+          {stock && (
+            <>
+              {/* Stock Info Card */}
+              <View style={styles.stockCard}>
+                {stock.logoURL && (
+                  <Image
+                    source={{ uri: stock.logoURL }}
+                    style={{ width: 100, height: 100, marginTop: 10, marginBottom: 50, alignSelf: 'center' }}
+                    resizeMode="contain"
+                  />
+                )}
+                {Object.entries({
+                  Symbol: stock.symbol,
+                  Company: stock.companyName,
+                  'Current Price': `$${stock.currentPrice.toFixed(2)}`,
+                  Country: stock.country,
+                  'Market Value': stock.marketValue ? `$${stock.marketValue.toLocaleString()}` : 'N/A',
+                  '52 Week High': `$${stock.high52Week.toFixed(2)}`,
+                  '52 Week Low': `$${stock.low52Week.toFixed(2)}`,
+                  EPS: stock.eps.toFixed(2),
+                  Sector: stock.stockSector,
+                  Exchange: stock.exchange,
+                  'Official Site': stock.officialSite,
+                }).reduce((rows, entry, index) => {
+                  const rowIndex = Math.floor(index / 3);
+                  if (!rows[rowIndex]) rows[rowIndex] = [];
+                  rows[rowIndex].push(entry);
+                  return rows;
+                }, [] as [string, any][][]).map((row, rowIndex) => (
+                  <View key={rowIndex} style={styles.cardRowMulti}>
+                    {row.map(([label, value]) => (
+                      <View key={label} style={{ flex: 1 }}>
+                        <Text style={styles.cardLabel}>{label}</Text>
+                        <Text style={styles.cardValue}>{value}</Text>
                       </View>
                     ))}
-                  </ScrollView>
-                </View>
-              )}
-            </View>
-
-            {/* Analyst Recommendations Section */}
-            <View style={styles.recommendationsContainer}>
-              <TouchableOpacity
-                style={styles.sectionHeader}
-                onPress={() => setIsRecommendationsExpanded(!isRecommendationsExpanded)}
-              >
-                <Text style={styles.sectionHeaderText}>Analyst Recommendations</Text>
-                <Text style={styles.expandIcon}>{isRecommendationsExpanded ? '▼' : '▶'}</Text>
-              </TouchableOpacity>
-
-              {isRecommendationsExpanded && recommendations.length > 0 && (
-                <View style={styles.recommendationsContent}>
-                  <View style={styles.latestRecommendation}>
-                    {(() => {
-                      const latest = recommendations[0];
-                      const total = latest.strongBuy + latest.buy + latest.hold + latest.sell + latest.strongSell;
-                      return (
-                        <>
-                          <Text style={styles.recommendationPeriod}>
-                            {format(parseISO(latest.period), 'MMMM yyyy')}
-                          </Text>
-                          <View style={styles.recommendationBar}>
-                            <View style={[styles.barSegment, { backgroundColor: '#00C853', width: `${(latest.strongBuy / total) * 100}%` }]}>
-                              <Text style={styles.barText}>{latest.strongBuy}</Text>
-                            </View>
-                            <View style={[styles.barSegment, { backgroundColor: '#4CAF50', width: `${(latest.buy / total) * 100}%` }]}>
-                              <Text style={styles.barText}>{latest.buy}</Text>
-                            </View>
-                            <View style={[styles.barSegment, { backgroundColor: '#FFD740', width: `${(latest.hold / total) * 100}%` }]}>
-                              <Text style={styles.barText}>{latest.hold}</Text>
-                            </View>
-                            <View style={[styles.barSegment, { backgroundColor: '#FF5252', width: `${(latest.sell / total) * 100}%` }]}>
-                              <Text style={styles.barText}>{latest.sell}</Text>
-                            </View>
-                            <View style={[styles.barSegment, { backgroundColor: '#D50000', width: `${(latest.strongSell / total) * 100}%` }]}>
-                              <Text style={styles.barText}>{latest.strongSell}</Text>
-                            </View>
-                          </View>
-                          <View style={styles.recommendationLegend}>
-                            <View style={styles.legendItem}>
-                              <View style={[styles.legendColor, { backgroundColor: '#00C853' }]} />
-                              <Text style={styles.legendText}>Strong Buy</Text>
-                            </View>
-                            <View style={styles.legendItem}>
-                              <View style={[styles.legendColor, { backgroundColor: '#4CAF50' }]} />
-                              <Text style={styles.legendText}>Buy</Text>
-                            </View>
-                            <View style={styles.legendItem}>
-                              <View style={[styles.legendColor, { backgroundColor: '#FFD740' }]} />
-                              <Text style={styles.legendText}>Hold</Text>
-                            </View>
-                            <View style={styles.legendItem}>
-                              <View style={[styles.legendColor, { backgroundColor: '#FF5252' }]} />
-                              <Text style={styles.legendText}>Sell</Text>
-                            </View>
-                            <View style={styles.legendItem}>
-                              <View style={[styles.legendColor, { backgroundColor: '#D50000' }]} />
-                              <Text style={styles.legendText}>Strong Sell</Text>
-                            </View>
-                          </View>
-                        </>
-                      );
-                    })()}
                   </View>
-                </View>
-              )}
-            </View>
+                ))}
 
-            <View>
-              <View style={styles.chartContainer}>
-                <StockChart
-                  symbol={stock.symbol}
-                  timeframe="1Day"
-                  chartType="candlestick"
-                />
+                <Text style={styles.stockDescription}>{stock.description}</Text>
               </View>
-            </View>
 
-            {/* Quote Card */}
-            <View style={styles.stockCard}>
-              <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8, outlineColor: '#FFF', borderColor: '#FFF' }}>Quote Data</Text>
-              {Object.entries({
-                High: `$${stock.quote.high.toFixed(2)}`,
-                Low: `$${stock.quote.low.toFixed(2)}`,
-                'Last Price': `$${stock.quote.lastPrice.toFixed(2)}`,
-                'Previous Close': `$${stock.quote.previousClose.toFixed(2)}`,
-                Change: `$${stock.quote.change.toFixed(2)}`,
-                'Change Percent': `${stock.quote.changePercent.toFixed(2)}%`,
-              }).reduce((rows, entry, index) => {
-                const rowIndex = Math.floor(index / 3);
-                if (!rows[rowIndex]) rows[rowIndex] = [];
-                rows[rowIndex].push(entry);
-                return rows;
-              }, [] as [string, any][][]).map((row, rowIndex) => (
-                <View key={rowIndex} style={styles.cardRowMulti}>
-                  {row.map(([label, value]) => (
-                    <View key={label} style={{ flex: 1 }}>
-                      <Text style={styles.cardLabel}>{label}</Text>
-                      <Text style={styles.cardValue}>{value}</Text>
-                    </View>
-                  ))}
-                </View>
-              ))}
-            </View>
-            {position && (
-                      <>
-                  <View style = {styles.positionCard}>
-                      <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>Current Position</Text>
-
-                      {Object.entries({
-                          Quantity: position?.quantity, 
-                          'Position Ratio': `${position?.positionRatio}%` , 
-                          'Position Type': position?.type,
-                          'Average Price Per Share ': `$${position?.averagePurchasePrice}`, 
-                          Cost: `$${position?.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`, 
-                          'Market Value': `$${position?.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`,
-
-                      }).reduce((rows, entry, index) => {
-                          const rowIndex = Math.floor(index / 3);
-                          if (!rows[rowIndex]) rows[rowIndex] = [];
-                          rows[rowIndex].push(entry);
-                          return rows;
-                      }, [] as [string, any][][]).map((row, rowIndex) => (
-                          <View key={rowIndex} style={styles.cardRowMulti}>
-                          {row.map(([label, value]) => (
-                              <View key={label} style={{ flex: 1 }}>
-                              <Text style={styles.cardLabel}>{label}</Text>
-                              <Text style={styles.cardValue}>{value}</Text>
-                              </View>
-                          ))}
-                          </View>
-                      ))}  
-
-
-                  </View>
-                      </>
-                  )}
-
-              <TouchableOpacity style={styles.tradeButton} onPress={() => setIsModalVisible(true)}>
-                  <Text style={{ color: 'white', fontWeight: 'bold' }}>Trade</Text>
-              </TouchableOpacity>
-
-          </>
-        )}
-
-        {error && <Text style={{ color: 'red', marginTop: 10 }}>{error}</Text>}
-
-        {/* Trade Modal */}
-        <Modal visible={isModalVisible} transparent animationType="slide">
-          <View style={styles.modalContainer}>
-            <View style={styles.modalContent}>
-              <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 10 }}>Select Trade Type</Text>
-
-              {orderTypes.map((type) => (
+              {/* Financial Metrics Dropdown */}
+              <View style={styles.metricsContainer}>
                 <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.orderTypeOption,
-                    selectedOrderType === type && styles.selectedOrderType,
-                  ]}
-                  onPress={() => setSelectedOrderType(type)}
+                  style={styles.metricsHeader}
+                  onPress={() => setIsMetricsExpanded(!isMetricsExpanded)}
                 >
-                  <Text style={{ color: selectedOrderType === type ? '#fff' : '#000' }}>{type}</Text>
+                  <Text style={styles.metricsHeaderText}>Financial Metrics</Text>
+                  <Text style={styles.expandIcon}>{isMetricsExpanded ? '▼' : '▶'}</Text>
                 </TouchableOpacity>
-              ))}
 
-              <TextInput
-                placeholder="Quantity"
-                keyboardType="numeric"
-                style={styles.inputField}
-                value={quantity}
-                onChangeText={setQuantity}
-              />
+                {isMetricsExpanded && (
+                  <View style={styles.metricsContent}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+                      {Object.keys(metricCategories).map((category) => (
+                        <TouchableOpacity
+                          key={category}
+                          style={[
+                            styles.categoryTab,
+                            selectedCategory === category && styles.selectedCategoryTab,
+                          ]}
+                          onPress={() => setSelectedCategory(category)}
+                        >
+                          <Text style={[
+                            styles.categoryTabText,
+                            selectedCategory === category && styles.selectedCategoryTabText,
+                          ]}>
+                            {category}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 }}>
-                <Pressable onPress={() => setIsModalVisible(false)} style={styles.cancelBtn}>
-                  <Text style={{ color: '#000' }}>Cancel</Text>
-                </Pressable>
-                <Pressable onPress={executeTrade} style={styles.confirmBtn}>
-                  <Text style={{ color: 'white' }}>Execute</Text>
-                </Pressable>
+                    <View style={styles.metricsGrid}>
+                      {financials && metricCategories[selectedCategory]?.map(({ key, label }) => {
+                        const value = financials.metric[key];
+                        const isPercentage = key.toLowerCase().includes('margin') || key.toLowerCase().includes('return');
+                        return (
+                          <View key={key} style={styles.metricItem}>
+                            <Text style={styles.metricLabel}>{label}</Text>
+                            <Text style={styles.metricValue}>
+                              {typeof value === 'number' ? value.toFixed(2) : value}
+                              {isPercentage ? '%' : ''}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
               </View>
-            </View>
-          </View>
-        </Modal>
-      </ScrollView>
+
+              {/* News Section */}
+              <View style={styles.newsContainer}>
+                <TouchableOpacity
+                  style={styles.newsHeader}
+                  onPress={() => setIsNewsExpanded(!isNewsExpanded)}
+                >
+                  <Text style={styles.newsHeaderText}>Latest News</Text>
+                  <Text style={styles.expandIcon}>{isNewsExpanded ? '▼' : '▶'}</Text>
+                </TouchableOpacity>
+
+                {isNewsExpanded && (
+                  <View style={styles.newsContent}>
+                    <ScrollView style={styles.newsList}>
+                      {news.map((item) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={styles.newsItem}
+                          onPress={() => {
+                            if (Platform.OS === 'web') {
+                              window.open(item.url, '_blank');
+                            }
+                          }}
+                        >
+                          <View style={styles.newsItemHeader}>
+                            <Text style={styles.newsSource}>{item.source}</Text>
+                            <Text style={styles.newsAuthor}>{item.author}</Text>
+                          </View>
+                          <Text style={styles.newsHeadline}>{item.headline}</Text>
+                          <Text style={styles.newsSummary} numberOfLines={2}>
+                            {item.summary}
+                          </Text>
+                          <View style={styles.newsSymbols}>
+                            {item.symbols.map((symbol) => (
+                              <View key={symbol} style={styles.symbolTag}>
+                                <Text style={styles.symbolTagText}>{symbol}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              {/* Earnings Calendar Section */}
+              <View style={styles.earningsContainer}>
+                <TouchableOpacity
+                  style={styles.sectionHeader}
+                  onPress={() => setIsEarningsExpanded(!isEarningsExpanded)}
+                >
+                  <Text style={styles.sectionHeaderText}>Earnings Calendar</Text>
+                  <Text style={styles.expandIcon}>{isEarningsExpanded ? '▼' : '▶'}</Text>
+                </TouchableOpacity>
+
+                {isEarningsExpanded && (
+                  <View style={styles.earningsContent}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {earnings.map((earning) => (
+                        <View key={`${earning.date}-${earning.quarter}`} style={styles.earningCard}>
+                          <Text style={styles.earningDate}>
+                            {format(parseISO(earning.date), 'MMM d, yyyy')}
+                          </Text>
+                          <Text style={styles.earningHour}>{getMarketHour(earning.hour)}</Text>
+                          <Text style={styles.earningQuarter}>Q{earning.quarter}</Text>
+                          <View style={styles.earningMetric}>
+                            <Text style={styles.metricLabel}>EPS Est.</Text>
+                            <Text style={styles.metricValue}>${earning.epsEstimate.toFixed(2)}</Text>
+                            {earning.epsActual && (
+                              <Text style={[
+                                styles.metricActual,
+                                { color: earning.epsActual >= earning.epsEstimate ? '#4CAF50' : '#FF5252' }
+                              ]}>
+                                Actual: ${earning.epsActual.toFixed(2)}
+                              </Text>
+                            )}
+                          </View>
+                          <View style={styles.earningMetric}>
+                            <Text style={styles.metricLabel}>Revenue Est.</Text>
+                            <Text style={styles.metricValue}>{formatCurrency(earning.revenueEstimate)}</Text>
+                            {earning.revenueActual && (
+                              <Text style={[
+                                styles.metricActual,
+                                { color: earning.revenueActual >= earning.revenueEstimate ? '#4CAF50' : '#FF5252' }
+                              ]}>
+                                Actual: {formatCurrency(earning.revenueActual)}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              {/* Analyst Recommendations Section */}
+              <View style={styles.recommendationsContainer}>
+                <TouchableOpacity
+                  style={styles.sectionHeader}
+                  onPress={() => setIsRecommendationsExpanded(!isRecommendationsExpanded)}
+                >
+                  <Text style={styles.sectionHeaderText}>Analyst Recommendations</Text>
+                  <Text style={styles.expandIcon}>{isRecommendationsExpanded ? '▼' : '▶'}</Text>
+                </TouchableOpacity>
+
+                {isRecommendationsExpanded && recommendations.length > 0 && (
+                  <View style={styles.recommendationsContent}>
+                    <View style={styles.latestRecommendation}>
+                      {(() => {
+                        const latest = recommendations[0];
+                        const total = latest.strongBuy + latest.buy + latest.hold + latest.sell + latest.strongSell;
+                        return (
+                          <>
+                            <Text style={styles.recommendationPeriod}>
+                              {format(parseISO(latest.period), 'MMMM yyyy')}
+                            </Text>
+                            <View style={styles.recommendationBar}>
+                              <View style={[styles.barSegment, { backgroundColor: '#00C853', width: `${(latest.strongBuy / total) * 100}%` }]}>
+                                <Text style={styles.barText}>{latest.strongBuy}</Text>
+                              </View>
+                              <View style={[styles.barSegment, { backgroundColor: '#4CAF50', width: `${(latest.buy / total) * 100}%` }]}>
+                                <Text style={styles.barText}>{latest.buy}</Text>
+                              </View>
+                              <View style={[styles.barSegment, { backgroundColor: '#FFD740', width: `${(latest.hold / total) * 100}%` }]}>
+                                <Text style={styles.barText}>{latest.hold}</Text>
+                              </View>
+                              <View style={[styles.barSegment, { backgroundColor: '#FF5252', width: `${(latest.sell / total) * 100}%` }]}>
+                                <Text style={styles.barText}>{latest.sell}</Text>
+                              </View>
+                              <View style={[styles.barSegment, { backgroundColor: '#D50000', width: `${(latest.strongSell / total) * 100}%` }]}>
+                                <Text style={styles.barText}>{latest.strongSell}</Text>
+                              </View>
+                            </View>
+                            <View style={styles.recommendationLegend}>
+                              <View style={styles.legendItem}>
+                                <View style={[styles.legendColor, { backgroundColor: '#00C853' }]} />
+                                <Text style={styles.legendText}>Strong Buy</Text>
+                              </View>
+                              <View style={styles.legendItem}>
+                                <View style={[styles.legendColor, { backgroundColor: '#4CAF50' }]} />
+                                <Text style={styles.legendText}>Buy</Text>
+                              </View>
+                              <View style={styles.legendItem}>
+                                <View style={[styles.legendColor, { backgroundColor: '#FFD740' }]} />
+                                <Text style={styles.legendText}>Hold</Text>
+                              </View>
+                              <View style={styles.legendItem}>
+                                <View style={[styles.legendColor, { backgroundColor: '#FF5252' }]} />
+                                <Text style={styles.legendText}>Sell</Text>
+                              </View>
+                              <View style={styles.legendItem}>
+                                <View style={[styles.legendColor, { backgroundColor: '#D50000' }]} />
+                                <Text style={styles.legendText}>Strong Sell</Text>
+                              </View>
+                            </View>
+                          </>
+                        );
+                      })()}
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              <View>
+                <View style={styles.chartContainer}>
+                  <StockChart
+                    symbol={stock.symbol}
+                    timeframe="1min"
+                    chartType="candlestick"
+                  />
+                </View>
+              </View>
+
+              {/* Quote Card */}
+              <View style={styles.stockCard}>
+                <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8, outlineColor: '#FFF', borderColor: '#FFF' }}>Quote Data</Text>
+                {Object.entries({
+                  High: `$${stock.quote.high.toFixed(2)}`,
+                  Low: `$${stock.quote.low.toFixed(2)}`,
+                  'Last Price': `$${stock.quote.lastPrice.toFixed(2)}`,
+                  'Previous Close': `$${stock.quote.previousClose.toFixed(2)}`,
+                  Change: `$${stock.quote.change.toFixed(2)}`,
+                  'Change Percent': `${stock.quote.changePercent.toFixed(2)}%`,
+                }).reduce((rows, entry, index) => {
+                  const rowIndex = Math.floor(index / 3);
+                  if (!rows[rowIndex]) rows[rowIndex] = [];
+                  rows[rowIndex].push(entry);
+                  return rows;
+                }, [] as [string, any][][]).map((row, rowIndex) => (
+                  <View key={rowIndex} style={styles.cardRowMulti}>
+                    {row.map(([label, value]) => (
+                      <View key={label} style={{ flex: 1 }}>
+                        <Text style={styles.cardLabel}>{label}</Text>
+                        <Text style={styles.cardValue}>{value}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </View>
+              {position && (
+                        <>
+                    <View style = {styles.positionCard}>
+                        <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>Current Position</Text>
+
+                        {Object.entries({
+                            Quantity: position?.quantity, 
+                            'Position Ratio': `${position?.positionRatio}%` , 
+                            'Position Type': position?.type,
+                            'Average Price Per Share ': `$${position?.averagePurchasePrice}`, 
+                            Cost: `$${position?.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`, 
+                            'Market Value': `$${position?.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`,
+
+                        }).reduce((rows, entry, index) => {
+                            const rowIndex = Math.floor(index / 3);
+                            if (!rows[rowIndex]) rows[rowIndex] = [];
+                            rows[rowIndex].push(entry);
+                            return rows;
+                        }, [] as [string, any][][]).map((row, rowIndex) => (
+                            <View key={rowIndex} style={styles.cardRowMulti}>
+                            {row.map(([label, value]) => (
+                                <View key={label} style={{ flex: 1 }}>
+                                <Text style={styles.cardLabel}>{label}</Text>
+                                <Text style={styles.cardValue}>{value}</Text>
+                                </View>
+                            ))}
+                            </View>
+                        ))}  
+
+
+                    </View>
+                        </>
+                    )}
+
+            </>
+          )}
+
+          {error && <Text style={{ color: 'red', marginTop: 10 }}>{error}</Text>}
+        </ScrollView>
+
+        {stock && (
+          <FloatingTradePanel
+            symbol={stock.symbol}
+            currentPrice={stock.currentPrice}
+            onTrade={handleTrade}
+            userId={userId}
+          />
+        )}
+      </View>
     </PaperProvider>
   );
 };
@@ -948,8 +894,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignItems: 'center',
     minWidth: 600,
-    alignSelf:'center'
-
+    alignSelf: 'center'
   },
   inputField: {
     borderRadius: 12,
@@ -1013,57 +958,61 @@ const styles = StyleSheet.create({
     color: '#888',
     lineHeight: 20,
   },
-  tradeButton: {
-    backgroundColor: '#4CAF50',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  modalContainer: {
+  modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
   },
-  modalContent: {
-    width: '85%',
+  suggestionsWrapper: {
+    paddingHorizontal: 16,
+    paddingTop: 120,
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
+  },
+  suggestionsContainer: {
     backgroundColor: '#1E1E1E',
-    borderRadius: 12,
-    padding: 20,
-  },
-  orderTypeOption: {
-    backgroundColor: '#FFF',
-    padding: 12,
     borderRadius: 8,
-    marginVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    maxHeight: 300,
+    zIndex: 1000,
+  },
+  suggestionsList: {
+    maxHeight: 300,
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  suggestionContent: {
+    gap: 4,
+  },
+  suggestionMain: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  selectedOrderType: {
-    backgroundColor: '#4CAF50',
+  symbolText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
-  cancelBtn: {
-    backgroundColor: '#FFF',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+  exchangeText: {
+    color: '#4CAF50',
+    fontSize: 12,
+    fontWeight: '500',
   },
-  confirmBtn: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  chartContainer: {
-    overflowX:'hidden',
-    flex: 1,
-    
-    maxHeight: 900,  // increased minimum height
-    minHeight:600,
-    // maxWidth: 100,
-    paddingVertical: 10,
-    paddingHorizontal: 5,
-    marginVertical: 10,
+  nameText: {
+    color: '#AAA',
+    fontSize: 14,
   },
   metricsContainer: {
     backgroundColor: '#1E1E1E',
@@ -1316,60 +1265,15 @@ const styles = StyleSheet.create({
     color: '#AAA',
     fontSize: 12,
   },
-  modalOverlay: {
+  chartContainer: {
+    overflowX:'hidden',
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-start',
-  } as const,
-  suggestionsWrapper: {
-    paddingHorizontal: 16,
-    paddingTop: 120,
-    width: '100%',
-    maxWidth: 600,
-    alignSelf: 'center',
-  } as const,
-  suggestionsContainer: {
-    backgroundColor: '#1E1E1E',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    maxHeight: 300,
-    zIndex: 1000,
-  },
-  suggestionsList: {
-    maxHeight: 300,
-  },
-  suggestionItem: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  suggestionContent: {
-    gap: 4,
-  },
-  suggestionMain: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  symbolText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  exchangeText: {
-    color: '#4CAF50',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  nameText: {
-    color: '#AAA',
-    fontSize: 14,
+    
+    maxHeight: 900,  // increased minimum height
+    minHeight:600,
+    // maxWidth: 100,
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    marginVertical: 10,
   },
 });
