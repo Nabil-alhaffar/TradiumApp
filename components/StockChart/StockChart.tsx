@@ -8,7 +8,9 @@ import {
   CandlestickChart,
   CandlestickChartProvider,
   LineChart,
+  LineChartCursorCrosshair,
   LineChartProvider,
+  YRangeProp,
 } from 'react-native-wagmi-charts';
 import axios from 'axios';
 import * as haptics from 'expo-haptics';
@@ -16,16 +18,22 @@ import * as haptics from 'expo-haptics';
 import { connectToMarketData, joinSymbolGroup, disconnect } from '../../app/services/SignalRService';
 import { parseBar, parseBars, Bar } from './chartParsers';
 import { ScrollView } from 'react-native-gesture-handler';
+import axiosInstance from '@/app/services/AxiosInstance';
 
 interface StockChartProps {
   symbol: string;
   timeframe: string;
   chartType: 'candlestick' | 'line';
+  height?: number;
+  width?: number;
+  limit?: number; // Numeber of data points shown. 
+  zoomBtnsEnabled?: boolean;
+  pathColor?: string;
 }
 
 const screenHeight = Dimensions.get('window').height;
 
-const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType }) => {
+const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType, height, width, limit, zoomBtnsEnabled, pathColor }) => {
   const [data, setData] = useState<Bar[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,12 +67,16 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType })
       try {
         const url = `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/alpaca/${symbol}/historicaldata/${timeframe}`;
         const response = await axios.get(url);
-
+  
         let bars = response.data.bars.bars;
         if (typeof bars === 'string') bars = JSON.parse(bars);
         if (!Array.isArray(bars)) throw new Error('Expected bars to be an array');
+  
+        const parsed = parseBars(bars);
+        parsed.sort((a, b) => a.timestamp - b.timestamp);
 
-        setData(parseBars(bars));
+        setData(limit ? parsed.slice(-limit) : parsed);
+
       } catch (err) {
         console.error('Historical data fetch error:', err);
         setError('Failed to load chart data.');
@@ -72,9 +84,9 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType })
         setLoading(false);
       }
     };
-
+  
     fetchData();
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, limit]);
 
   // Real-time updates
   useEffect(() => {
@@ -142,18 +154,18 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType })
 
 // 2. Apply to `valueRangeY` (with slight padding for better visibility)
       const padding = (maxY - minY) * 0.1; // 10% padding
-      const valueRangeY = [minY - padding, maxY + padding];
+      const valueRangeY: [min: number, max:number]= [ minY - padding, maxY + padding];
       return (
         
-        <CandlestickChartProvider data={data} valueRangeY={[minY,maxY]}   >
-          <CandlestickChart style={styles.chart}   >
-          <view style={styles.chartText}>
+        <CandlestickChartProvider data={data} valueRangeY={valueRangeY}  >
+          <CandlestickChart style={[styles.chart, { height: height ?? screenHeight * 0.3 , width: width ?? '100%' }] }   >
+          <View style={styles.chartText}>
               <Text style ={{ color : "#ffd700"}}  >Open: <CandlestickChart.PriceText type="open" style ={{ color : "#ffd700"}} /></Text>
               <Text style ={{ color : "#ffd700"}}  >High: <CandlestickChart.PriceText type="high" style ={{ color : "#ffd700"}}  /></Text>
               <Text style ={{ color : "#ffd700"}}  >Low: <CandlestickChart.PriceText type="low" style ={{ color : "#ffd700"}} /></Text>
               <Text style ={{ color : "#ffd700"}}  >Close: <CandlestickChart.PriceText type="close" style ={{ color : "#ffd700"}}  /></Text>
               <Text style ={{ color : "#ffd700"}}  >Timestamp: <CandlestickChart.DatetimeText style ={{ color : "#ffd700"}} /></Text>
-         </view>
+         </View>
             <CandlestickChart.Candles
               positiveColor="#2E8B57" // Green for up candles
               negativeColor="#FF4500" // Red for down candles
@@ -175,7 +187,7 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType })
                 }
               }}
             />
-            <CandlestickChart.Crosshair color="#ffd700" >
+            <CandlestickChart.Crosshair color="#ffd700" shouldCancelWhenOutside ={false}  >
               <CandlestickChart.Tooltip />
             </CandlestickChart.Crosshair>
 
@@ -197,11 +209,25 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType })
         timestamp: bar.timestamp,
         value: bar.close, // use `close` price as the line chart value
       }));
+
+      const values = lineChartData.map(d => d.value);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const padding = (max - min) * 0.1; // 10% padding
+      const valueRangeY: YRangeProp = {
+        min: min - padding,
+        max: max + padding,
+      };
       return (
-        <LineChartProvider data={lineChartData}>
-          <LineChart style={styles.chart}>
-            <LineChart.Path />
-            <LineChart.CursorCrosshair />
+        <LineChartProvider data={lineChartData} yRange={valueRangeY}  >
+          <LineChart style={[styles.chart, { height: height ?? screenHeight * 0.3 , width: width ?? '100%' }] } height={100} width={1000}>
+            <LineChart.Path color= {pathColor}/>
+            <LineChart.HorizontalLine/>
+            <LineChart.Cursor type='crosshair'  >
+              <LineChartCursorCrosshair/>
+              <LineChart.Dot color="#00ffcc" at={2}/>
+              <LineChart.DatetimeText />
+            </LineChart.Cursor>
             <LineChart.Tooltip />
           </LineChart>
         </LineChartProvider>
@@ -211,12 +237,14 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType })
     return null;
   };
 
-  return <View style={styles.container}>{renderChart()}
+  return <View style={[styles.container, { width: width ?? '100%', height:height }]}>{renderChart()}
+      {zoomBtnsEnabled && (
       <View style={styles.zoomControls}>
             <TouchableOpacity 
               style={styles.zoomButton} 
               onPress={() => handleZoom(1.2)}
               disabled={visibleRange.end - visibleRange.start <= 5}
+              
             >
               <Text>+</Text>
             </TouchableOpacity>
@@ -227,7 +255,10 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, timeframe, chartType })
             >
               <Text>-</Text>
             </TouchableOpacity>
-          </View></View>;
+          </View>
+      )}
+          </View>;
+
 };
 
 export default StockChart;
@@ -239,8 +270,6 @@ const styles = StyleSheet.create({
     // backgroundColor: '#192130',
     backgroundColor: '#161d2a',
 
-    // height: screenHeight < 700 ? screenHeight * 0.3 : 300,
-    // maxWidth: 800,
     padding:10,
     alignSelf: 'center',
     // width: '100%',
@@ -248,9 +277,11 @@ const styles = StyleSheet.create({
   },
   chart: {
     overflowX:'hidden',
-    height: screenHeight < 700 ? screenHeight * 0.3 : 300,
+    overflowY:'auto',
+    overscrollBehaviorY:'contain',
+    // height: screenHeight < 700 ? screenHeight * 0.3 : 300,
     
-    flex: 1, // Important for proper chart sizing
+     flex: 1, // Important for proper chart sizing
     marginBottom: 10, // Space for zoom controls
     // flex: 2,
   },

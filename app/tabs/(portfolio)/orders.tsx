@@ -12,7 +12,7 @@ interface order{
   symbol: string,
   quantity: number,
   price: number,
-  type: string,
+  side: string,
   timestamp: Date
 }
 let token: string | null = null;
@@ -83,23 +83,23 @@ export default function OrdersScreen() {
               styles.card,
               {
                 borderLeftColor:
-                  item.type.toLowerCase() === 'buy' ? '#4CAF50' : '#F44336',
+                  item.side.toLowerCase() === 'buy' ? '#4CAF50' : '#F44336',
               },
             ]}
           >
             <View style={styles.row}>
               <MaterialIcons
                 name={
-                  item.type.toLowerCase() === 'buy'
+                  item.side.toLowerCase() === 'buy'
                     ? 'trending-up'
                     : 'trending-down'
                 }
                 size={24}
-                color={item.type.toLowerCase() === 'buy' ? '#4CAF50' : '#F44336'}
+                color={item.side.toLowerCase() === 'buy' ? '#4CAF50' : '#F44336'}
               />
               <Text style={styles.symbol}>{item.symbol.toUpperCase()}</Text>
               <Text style={styles.type}>
-                {item.type.toUpperCase()} x {item.quantity}
+                {item.side.toUpperCase()} x {item.quantity}
               </Text>
             </View>
             <Text style={styles.price}>${item.price.toFixed(2)}</Text>

@@ -5,32 +5,43 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as SignalRService from '../../app/services/SignalRService';
-import { LineChart, LineChartProvider } from 'react-native-wagmi-charts';
 import axiosInstance from '../services/AxiosInstance';
+import StockChart from '../../components/StockChart/StockChart'
 
 interface Watchlist {
-  id: string;
+  watchlistId: string;
   symbols: string[];
-  name: string;
+  watchlistName: string;
 }
-interface SnapshotResponse {
-  snapshots: string; // JSON string that needs parsing
+// interface SnapshotResponse {
+//   snapshots: string; // JSON string that needs parsing
+// }
+
+// interface Snapshot {
+//   dailyBar?: {
+//     c: number; // current day's close (or latest daily price)
+//     t: string; // timestamp
+//   };
+//   prevDailyBar?: {
+//     c: number; // previous close
+//   };
+
+//   latestQuote?: {
+//     ap: number; // ask price
+//     bp: number; // bid price
+//   };
+//   // ... other fields
+// }
+
+interface FinnhubQuote{ 
+  c: number
+  h: number,
+  l: number,
+  o: number,
+  pc: number,
+  t: Date
 }
 
-interface Snapshot {
-  dailyBar?: {
-    c: number; // current day's close (or latest daily price)
-    t: string; // timestamp
-  };
-  prevDailyBar?: {
-    c: number; // previous close
-  };
-  latestQuote?: {
-    ap: number; // ask price
-    bp: number; // bid price
-  };
-  // ... other fields
-}
 
 interface Quote {
   Symbol: string;
@@ -39,13 +50,16 @@ interface Quote {
 }
 
 const parseQuote = (raw: any): Quote => ({
-  Symbol: raw.s,
+  Symbol: raw.S,
   AskPrice: raw.ap,
   BidPrice: raw.bp,
 });
 
 interface PrevCloseData {
-  [symbol: string]: number;
+  [symbol: string]: number |null;
+}
+interface CurrentCloseData{
+  [symbol: string] :number|null;
 }
 interface ChartData {
   [symbol: string]: { timestamp: number; value: number }[];
@@ -60,12 +74,67 @@ const WatchlistScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
-  const [prevCloses, setPrevCloses] = useState<PrevCloseData>({});
-  const [chartData, setChartData] = useState<ChartData>({});
+  const [prevCloses, setPrevCloses] = useState<PrevCloseData >({});
+  const [currentCloses, setCurrentCloses] = useState<CurrentCloseData >({});
+
+  // const [chartData, setChartData] = useState<ChartData>({});
   const [newWatchlistName, setNewWatchlistName] = useState('');
   const [newSymbol, setNewSymbol] = useState('');
   const [showAddWatchlist, setShowAddWatchlist] = useState(false);
   const [showAddSymbol, setShowAddSymbol] = useState(false);
+
+  const handleDeleteWatchlist = async () => {
+
+    
+    if (!watchlists || watchlists.length === 0) return;
+  
+    const watchlistToDelete = watchlists[currentIndex];
+    
+    try {
+      setLoading(true);
+      
+      await axiosInstance.delete(
+        `/watchlists/${userId}/${watchlistToDelete.watchlistId}`
+      );
+  
+      // Refresh the list
+      await fetchWatchlistsAndSnapshots();
+      
+      // Reset current index if we deleted the last item
+      setCurrentIndex(prev => {
+        // If we deleted the last item, go to previous one
+        return prev > 0 ? prev - 1 : 0;
+      });
+      
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete watchlist');
+      console.error('Error deleting watchlist:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const confirmDelete = () => {
+    if (!currentWatchlist) return;
+  
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        `Delete watchlist "${currentWatchlist.watchlistName}"?`
+      );
+      if (confirmed) handleDeleteWatchlist();
+    } else {
+      Alert.alert(
+        'Confirm Delete',
+        `Delete watchlist "${currentWatchlist.watchlistName}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', 
+            style: 'destructive', 
+            onPress: handleDeleteWatchlist 
+          }
+        ]
+      );
+    }
+  };
 
   const fetchWatchlistsAndSnapshots = async () => {
     try {
@@ -84,39 +153,44 @@ const WatchlistScreen = () => {
       setWatchlists(fetchedWatchlists);
 
       const allSymbols = Array.from(new Set(fetchedWatchlists.flatMap(w => w.symbols)));
+
+      const prevCloses: PrevCloseData = {};
+      const currentCloses: CurrentCloseData = {};
+
       if (allSymbols.length > 0) {
-        const snapshotResponse = await axiosInstance.get<SnapshotResponse>(
-          '/alpaca/snapshots',
-          {
-            params: { symbols: allSymbols },
-          }
-        );
-      
-        const parsedSnapshots: Record<string, Snapshot> = JSON.parse(snapshotResponse.data.snapshots);
-
-        const closes: PrevCloseData = {};
-        const chart: ChartData = {};
-
+        // const snapshotResponse = await axiosInstance.get<SnapshotResponse>(
+        //   '/alpaca/snapshots',
+        //   {
+        //     params: { symbols: allSymbols },
+        //   }
+        // );
         for (const symbol of allSymbols) {
-          closes[symbol] = parsedSnapshots[symbol]?.prevDailyBar?.c ?? null;
+          const finnhubQuoteResponse = await axiosInstance.get<FinnhubQuote>(
+            `/Finnhub/quote/${symbol}`,
+            {
 
-          // Generate sample chart data from minuteBars if available
-          const bars = parsedSnapshots[symbol]?.minuteBars;
-          if (bars) {
-            chart[symbol] = bars.map(b => ({
-              timestamp: new Date(b.t).getTime(),
-              value: b.c,
-            }));
-          }
-        }
+            }
 
-        setPrevCloses(closes);
-        setChartData(chart);
+          );
+          prevCloses[symbol] = finnhubQuoteResponse?.data.pc?? null;
+          currentCloses[symbol] = finnhubQuoteResponse?.data.c?? null;
+
+        };
+      
+        // const parsedSnapshots: Record<string, Snapshot> = JSON.parse(snapshotResponse.data.snapshots);
+
+        setCurrentCloses(currentCloses);
+        setPrevCloses(prevCloses);
 
         await SignalRService.connectToMarketData();
         SignalRService.registerQuoteListener((rawQuote: any) => {
           const parsed = parseQuote(rawQuote);
-          setQuotes(prev => ({ ...prev, [parsed.Symbol]: parsed }));
+          setQuotes(prev => {
+            // Create a new object to ensure React detects the change
+            const newQuotes = {...prev, [parsed.Symbol]: parsed};
+            console.log('New quote received:', parsed.Symbol, newQuotes[parsed.Symbol]);
+            return newQuotes;
+          });
         });
 
         for (const symbol of allSymbols) {
@@ -148,65 +222,94 @@ const WatchlistScreen = () => {
     try {
       const response = await axiosInstance.post(
         `/watchlists/${userId}`,
-        { name: newWatchlistName }
+        { watchlistName: newWatchlistName }
       );
-      
+
       const newWatchlist: Watchlist = response.data;
-      setWatchlists(prev => [...(prev || []), newWatchlist]);
+
+      setWatchlists(prev => {
+        const updated = [...(prev || []), newWatchlist];
+        setCurrentIndex(updated.length - 1); // select new one
+        return updated;
+      });
+      fetchWatchlistsAndSnapshots();
       setNewWatchlistName('');
       setShowAddWatchlist(false);
-      setCurrentIndex((watchlists?.length || 0));
     } catch (error) {
       Alert.alert('Error', 'Failed to create watchlist');
       console.error('Error creating watchlist:', error);
     }
   };
 
-  const handleAddSymbol = async () => {
-    if (!newSymbol.trim()) {
-      Alert.alert('Error', 'Please enter a symbol');
+
+  
+
+  const handleAddSymbols = async (symbolsToAdd: string[]) => {
+    if (!symbolsToAdd || symbolsToAdd.length === 0) {
+      Alert.alert('Error', 'Please enter at least one symbol to add');
       return;
     }
-
+  
     if (!watchlists || watchlists.length === 0) {
-      Alert.alert('Error', 'No watchlist available to add symbol to');
+      Alert.alert('Error', 'No watchlist available to add symbols to');
       return;
     }
-
+  
     const currentWatchlist = watchlists[currentIndex];
-    
-    try {
-      await axiosInstance.post(
-        `/watchlists/${userId}/${currentWatchlist.id}/add-symbol`,
-        { symbol: newSymbol.toUpperCase() }
+    if (!currentWatchlist) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>No watchlist selected</Text>
+        </View>
       );
-      
-      // Refresh the watchlists
+    }
+  
+    try {
+      const uppercaseSymbols = symbolsToAdd.map((s) => s.trim().toUpperCase()).filter(Boolean);
+  
+      await axiosInstance.post(
+        `/watchlists/${userId}/${currentWatchlist.watchlistId}/add-symbols`,
+        { symbols: uppercaseSymbols }
+      );
+  
       await fetchWatchlistsAndSnapshots();
       setNewSymbol('');
       setShowAddSymbol(false);
     } catch (error) {
-      Alert.alert('Error', 'Failed to add symbol to watchlist');
-      console.error('Error adding symbol:', error);
+      Alert.alert('Error', 'Failed to add symbols to watchlist');
+      console.error('Error adding symbols:', error);
     }
   };
-
-  const handleRemoveSymbol = async (symbol: string) => {
+  
+  const handleRemoveSymbols = async (symbolsToRemove: string[]) => {
+    if (!symbolsToRemove || symbolsToRemove.length === 0) {
+      Alert.alert('Error', 'Please select at least one symbol to remove');
+      return;
+    }
+  
     if (!watchlists || watchlists.length === 0) return;
-
+  
     const currentWatchlist = watchlists[currentIndex];
-    
+  
     try {
+      const uppercaseSymbols = symbolsToRemove.map((s) => s.trim().toUpperCase()).filter(Boolean);
+  
+      console.log('currentIndex:', currentIndex);
+      console.log('watchlists:', watchlists);
+      console.log('currentWatchlist:', currentWatchlist);
+         // Leave SignalR groups for removed symbols
+    for (const symbol of symbolsToRemove) {
+      await SignalRService.leaveSymbolGroup(symbol.toUpperCase());
+    }
       await axiosInstance.post(
-        `/watchlists/${userId}/${currentWatchlist.id}/remove-symbol`,
-        { symbol }
+        `/watchlists/${userId}/${currentWatchlist.watchlistId}/remove-symbols`,
+        { symbols: uppercaseSymbols }
       );
-      
-      // Refresh the watchlists
+  
       await fetchWatchlistsAndSnapshots();
     } catch (error) {
-      Alert.alert('Error', 'Failed to remove symbol from watchlist');
-      console.error('Error removing symbol:', error);
+      Alert.alert('Error', 'Failed to remove symbols from watchlist');
+      console.error('Error removing symbols:', error);
     }
   };
 
@@ -260,6 +363,7 @@ const WatchlistScreen = () => {
               >
                 <Text style={styles.actionButtonText}>Create</Text>
               </TouchableOpacity>
+
             </View>
           </View>
         )}
@@ -279,7 +383,7 @@ const WatchlistScreen = () => {
         >
           <Text style={styles.navText}>◀</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>{currentWatchlist.name}</Text>
+        <Text style={styles.title}>{currentWatchlist.watchlistName}</Text>
         <TouchableOpacity
           onPress={() => setCurrentIndex(prev => Math.min(prev + 1, watchlists.length - 1))}
           disabled={currentIndex === watchlists.length - 1}
@@ -301,6 +405,14 @@ const WatchlistScreen = () => {
           onPress={() => setShowAddSymbol(true)}
         >
           <Text style={styles.addButtonText}>+ Symbol</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => {
+           confirmDelete();
+          }}
+        >
+          <Text style={styles.deleteButtonText}>Delete</Text>
         </TouchableOpacity>
       </View>
 
@@ -351,7 +463,7 @@ const WatchlistScreen = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionButton, styles.submitButton]}
-                  onPress={handleAddSymbol}
+                  onPress={() => handleAddSymbols([newSymbol])} 
                 >
                   <Text style={styles.actionButtonText}>Add</Text>
                 </TouchableOpacity>
@@ -361,17 +473,21 @@ const WatchlistScreen = () => {
         </View>
       )}
 
-      <ScrollView style={styles.symbolList}>
-        {currentWatchlist.symbols.length === 0 ? (
+     <ScrollView style={styles.symbolList}>
+        {!currentWatchlist?.symbols || currentWatchlist.symbols.length === 0 ? (
           <View style={styles.emptySymbolsContainer}>
             <Text style={styles.emptySymbolsText}>No symbols in this watchlist</Text>
           </View>
-        ) : (
+          ) : (
           currentWatchlist.symbols.map((symbol, index) => {
             const quote = quotes[symbol];
             const prevClose = prevCloses[symbol];
+            const currentClose = currentCloses[symbol];
             const realTimePrice = quote ? (quote.AskPrice + quote.BidPrice) / 2 : null;
-            const fallbackPrice = prevClose ?? null;
+            const fallbackPrice = currentClose  ?? null;
+
+            
+            // const fallbackPrice = prevClose ?? null;
             const price = realTimePrice ?? fallbackPrice;
 
             let changePercent = null;
@@ -382,34 +498,29 @@ const WatchlistScreen = () => {
             const displayPrice = price?.toFixed(2) ?? '-';
             const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
             const color =
-              changePercent == null
+              changePercent == null|| changePercent ==0
                 ? '#fff'
                 : changePercent > 0
-                ? '#00ff00'
-                : '#ff4d4d';
-
-            const lineData = chartData[symbol];
+                ? '#4CAF50'
+                : '#F44336';
 
             return (
               <View key={index} style={styles.symbolItem}>
                 <View style={styles.symbolHeader}>
                   <Text style={styles.symbolText}>{symbol}</Text>
+                  {/* <View style={styles.chartContainer}> */}
+                  < StockChart  symbol= {symbol} timeframe='1W' chartType='line' height={110} limit={25} zoomBtnsEnabled= {false} pathColor={color}/>
+                  {/* </View> */}
+          
+                  <Text style={[styles.price , { color }]}>{displayPrice} ({displayChange})</Text>
+
                   <TouchableOpacity
                     style={styles.removeButton}
-                    onPress={() => handleRemoveSymbol(symbol)}
+                    onPress={() => handleRemoveSymbols([symbol])}
                   >
                     <Text style={styles.removeButtonText}>×</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={{ color }}>{displayPrice} ({displayChange})</Text>
-                {lineData && (
-                  <LineChartProvider data={{ points: lineData }}>
-                    <LineChart height={40} width={200}>
-                      <LineChart.Path color="#00ffcc" width={2} />
-                      <LineChart.Dot color="#00ffcc" at={2}/>
-                    </LineChart>
-                  </LineChartProvider>
-                )}
               </View>
             );
           })
@@ -457,16 +568,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginBottom: 15,
+    gap: 10,
+    paddingHorizontal: 5,
   },
   navButton: {
-    padding: 10,
-    backgroundColor: '#1e90ff',
-    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#2a52be',
+    borderRadius: 12,
+    minWidth: 50,
+    alignItems: 'center',
+    shadowColor: '#1e90ff',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#4169e1',
   },
-  disabledButton: { backgroundColor: '#555' },
-  navText: { fontSize: 20, color: '#fff' },
+  disabledButton: { 
+    backgroundColor: '#2a2a2a',
+    borderColor: '#404040',
+    shadowOpacity: 0.1,
+  },
+  navText: { 
+    fontSize: 18, 
+    color: '#fff',
+    fontWeight: '600',
+  },
   symbolList: { marginTop: 10 },
   symbolItem: {
+    position:'relative',
     padding: 12,
     backgroundColor: '#1e1e1e',
     marginBottom: 8,
@@ -483,1129 +614,137 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 5,
   },
-  symbolText: { fontSize: 18, fontWeight: 'bold', color: '#FFD700' },
+  symbolText: { fontSize: 25, fontWeight: 'bold', color: '#FFD700', paddingRight:70 },
+  price:{paddingLeft:300, padding:10 ,fontWeight:'bold'},
   addButton: {
-    backgroundColor: '#1e90ff',
-    padding: 10,
-    borderRadius: 8,
-    marginHorizontal: 5,
+    flex: 1,
+    backgroundColor: '#1e3a8a',
+    padding: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1e90ff',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#2563eb',
   },
   addButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '600',
+    fontSize: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   addForm: {
     backgroundColor: '#1e1e1e',
     padding: 15,
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
   },
   input: {
     backgroundColor: '#2a2a2a',
     color: '#fff',
-    padding: 10,
-    borderRadius: 5,
-    marginBottom: 10,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#3a3a3a',
+    fontSize: 16,
   },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 10,
   },
   actionButton: {
     flex: 1,
-    padding: 10,
-    borderRadius: 5,
+    padding: 14,
+    borderRadius: 12,
     alignItems: 'center',
-    marginHorizontal: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 6,
+    borderWidth: 1,
   },
   submitButton: {
-    backgroundColor: '#1e90ff',
+    backgroundColor: '#1e3a8a',
+    borderColor: '#2563eb',
   },
   cancelButton: {
-    backgroundColor: '#ff4d4d',
+    backgroundColor: '#7f1d1d',
+    borderColor: '#991b1b',
   },
   actionButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '600',
+    fontSize: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   removeButton: {
-    padding: 5,
+    position: 'absolute',
+    top: 0,
+    right: 8,
+    padding: 8,
+    zIndex: 1,
+    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+    borderRadius: 20,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   removeButtonText: {
     color: '#ff4d4d',
     fontSize: 20,
     fontWeight: 'bold',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
+  deleteButton: {
+    flex: 1,
+    backgroundColor: '#7f1d1d',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#991b1b',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#991b1b',
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  // chartContainer:{
+  //   maxWidth:200,
+  //   flex:1,
+  //   width:200
+  // }
 });
 
 export default WatchlistScreen;
-
-
-// import { ThemedText } from '@/components/ThemedText';
-// import axios from 'axios';
-// import React, { useEffect, useState } from 'react';
-// import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform } from 'react-native';
-// import AsyncStorage from '@react-native-async-storage/async-storage';
-// import * as SecureStore from 'expo-secure-store';
-// import * as SignalRService from '../../app/services/SignalRService';
-// import { LineChart, LineChartProvider } from 'react-native-wagmi-charts';
-// import axiosInstance from '../services/AxiosInstance';
-
-// interface Watchlist {
-//   symbols: string[];
-//   name: string;
-// }
-// interface SnapshotResponse {
-//   snapshots: string; // JSON string that needs parsing
-// }
-
-// interface Snapshot {
-//   dailyBar?: {
-//     c: number; // current day's close (or latest daily price)
-//     t: string; // timestamp
-//   };
-//   prevDailyBar?: {
-//     c: number; // previous close
-//   };
-//   latestQuote?: {
-//     ap: number; // ask price
-//     bp: number; // bid price
-//   };
-//   // ... other fields
-// }
-
-// interface Quote {
-//   Symbol: string;
-//   BidPrice: number;
-//   AskPrice: number;
-// }
-
-// const parseQuote = (raw: any): Quote => ({
-//   Symbol: raw.s,
-//   AskPrice: raw.ap,
-//   BidPrice: raw.bp,
-// });
-
-// interface PrevCloseData {
-//   [symbol: string]: number;
-// }
-// interface ChartData {
-//   [symbol: string]: { timestamp: number; value: number }[];
-// }
-
-// let token: string | null = null;
-// let userId: string | null = null;
-
-// const WatchlistScreen = () => {
-//   const [watchlists, setWatchlists] = useState<Watchlist[] | null>(null);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState<string | null>(null);
-//   const [currentIndex, setCurrentIndex] = useState(0);
-//   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
-//   const [prevCloses, setPrevCloses] = useState<PrevCloseData>({});
-//   const [chartData, setChartData] = useState<ChartData>({});
-
-//   useEffect(() => {
-//     const fetchWatchlistsAndSnapshots = async () => {
-//       try {
-//         if (Platform.OS === 'web') {
-//           token = await AsyncStorage.getItem('userToken');
-//           userId = await AsyncStorage.getItem('userId');
-//         } else {
-//           token = await SecureStore.getItemAsync('userToken');
-//           userId = await SecureStore.getItemAsync('userId');
-//         }
-
-//         const response = await axiosInstance.get(
-//           `/watchlists/${userId}`
-//         );
-//         const fetchedWatchlists: Watchlist[] = response.data;
-//         setWatchlists(fetchedWatchlists);
-
-//         const allSymbols = Array.from(new Set(fetchedWatchlists.flatMap(w => w.symbols)));
-//         if(allSymbols.length>0){
-//         const snapshotResponse = await axiosInstance.get<SnapshotResponse>(
-//           '/alpaca/snapshots',
-//           {
-//             params: { symbols: allSymbols },
-          
-//           }
-//         );
-      
-//         const parsedSnapshots: Record<string, Snapshot> = JSON.parse(snapshotResponse.data.snapshots);
-
-//         const closes: PrevCloseData = {};
-//         const chart: ChartData = {};
-
-//         for (const symbol of allSymbols) {
-//           closes[symbol] = parsedSnapshots[symbol]?.prevDailyBar?.c ?? null;
-
-//           // Generate sample chart data from minuteBars if available
-//           const bars = parsedSnapshots[symbol]?.minuteBars;
-//           if (bars) {
-//             chart[symbol] = bars.map(b => ({
-//               timestamp: new Date(b.t).getTime(),
-//               value: b.c,
-//             }));
-//           }
-//         }
-
-//         setPrevCloses(closes);
-//         setChartData(chart);
-
-//         await SignalRService.connectToMarketData();
-//         SignalRService.registerQuoteListener((rawQuote: any) => {
-//           const parsed = parseQuote(rawQuote);
-//           setQuotes(prev => ({ ...prev, [parsed.Symbol]: parsed }));
-//         });
-
-//         for (const symbol of allSymbols) {
-//           await SignalRService.joinSymbolGroup(symbol);
-//         }
-//       }
-//       } catch (error) {
-//         console.error('Error loading data:', error);
-//         setError(error instanceof Error ? error.message : 'Unknown error');
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-
-//     fetchWatchlistsAndSnapshots();
-
-//     return () => {
-//       SignalRService.disconnect();
-//     };
-//   }, []);
-
-//   if (loading) {
-//     return (
-//       <View style={styles.loader}>
-//         <ActivityIndicator size="large" color="#00ffcc" />
-//         <Text style={styles.text}>Loading watchlists...</Text>
-//       </View>
-//     );
-//   }
-
-//   if (error) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>Failed to load watchlists: {error}</Text>
-//       </View>
-//     );
-//   }
-
-//   if (!watchlists || watchlists.length === 0) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>No watchlists available</Text>
-//       </View>
-//     );
-//   }
-
-//   const currentWatchlist = watchlists[currentIndex];
-
-//   return (
-//     <View style={styles.container}>
-//       <View style={styles.navContainer}>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex(prev => Math.max(prev - 1, 0))}
-//           disabled={currentIndex === 0}
-//           style={[styles.navButton, currentIndex === 0 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>◀</Text>
-//         </TouchableOpacity>
-//         <Text style={styles.title}>{currentWatchlist.name}</Text>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex(prev => Math.min(prev + 1, watchlists.length - 1))}
-//           disabled={currentIndex === watchlists.length - 1}
-//           style={[styles.navButton, currentIndex === watchlists.length - 1 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>▶</Text>
-//         </TouchableOpacity>
-//       </View>
-
-//       <ScrollView style={styles.symbolList}>
-//         {currentWatchlist.symbols.map((symbol, index) => {
-//           const quote = quotes[symbol];
-//           const prevClose = prevCloses[symbol];
-//           const realTimePrice = quote ? (quote.AskPrice + quote.BidPrice) / 2 : null;
-//           const fallbackPrice = prevClose ?? null;
-//           const price = realTimePrice ?? fallbackPrice;
-
-//           let changePercent = null;
-//           if (price != null && prevClose != null) {
-//             changePercent = ((price - prevClose) / prevClose) * 100;
-//           }
-
-//           const displayPrice = price?.toFixed(2) ?? '-';
-//           const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
-//           const color =
-//             changePercent == null
-//               ? '#fff'
-//               : changePercent > 0
-//               ? '#00ff00'
-//               : '#ff4d4d';
-
-//           const lineData = chartData[symbol];
-
-//           return (
-//             <View key={index} style={styles.symbolItem}>
-//               <Text style={styles.symbolText}>{symbol}</Text>
-//               <Text style={{ color }}>{displayPrice} ({displayChange})</Text>
-//               {lineData && (
-//                 <LineChartProvider data={{ points: lineData }}>
-//                   <LineChart height={40} width={200}>
-//                     <LineChart.Path color="#00ffcc" width={2} />
-//                     <LineChart.Dot color="#00ffcc" at={2}/>
-//                   </LineChart>
-//                 </LineChartProvider>
-//               )}
-//             </View>
-//           );
-//         })}
-//       </ScrollView>
-//     </View>
-//   );
-// };
-
-// export default WatchlistScreen;
-
-// const styles = StyleSheet.create({
-//   container: { flex: 1, backgroundColor: '#121212', padding: 16 },
-//   title: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 10, textAlign: 'center' },
-//   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   text: { color: '#ccc', fontSize: 16 },
-//   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   errorText: { color: '#ff4d4d', fontSize: 16 },
-//   navContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-//   navButton: {
-//     padding: 10,
-//     backgroundColor: '#1e90ff',
-//     borderRadius: 8,
-//   },
-//   disabledButton: { backgroundColor: '#555' },
-//   navText: { fontSize: 20, color: '#fff' },
-//   symbolList: { marginTop: 10 },
-//   symbolItem: {
-//     padding: 12,
-//     backgroundColor: '#1e1e1e',
-//     marginBottom: 8,
-//     borderRadius: 8,
-//     shadowColor: '#000',
-//     shadowOffset: { width: 0, height: 2 },
-//     shadowOpacity: 0.3,
-//     shadowRadius: 4,
-//     elevation: 5,
-//   },
-//   symbolText: { fontSize: 18, fontWeight: 'bold', color: '#FFD700' },
-// });
-
-
-// import { ThemedText } from '@/components/ThemedText';
-// import axios from 'axios';
-// import React, { useEffect, useState } from 'react';
-// import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform } from 'react-native';
-// import AsyncStorage from '@react-native-async-storage/async-storage';
-// import * as SecureStore from 'expo-secure-store';
-// // import {
-// //   connectToMarketData,
-// //   joinSymbolGroup,
-// //   disconnect,
-// //   registerQuoteListener,
-// // } from '../../app/services/SignalRService';
-// import * as SignalRService from '../../app/services/SignalRService';
-
-// interface Watchlist {
-//   symbols: string[];
-//   name: string;
-// }
-// interface SnapshotResponse {
-//   snapshots: string; // JSON string that needs parsing
-// }
-
-// interface Snapshot {
-//   prevDailyBar: {
-//     c: number; // previous close
-//   };
-// }
-
-// interface Quote {
-//   Symbol: string;
-//   BidPrice: number;
-//   AskPrice: number;
-// }
-
-// const parseQuote = (raw: any): Quote => ({
-//   Symbol: raw.s,
-//   AskPrice: raw.ap,
-//   BidPrice: raw.bp,
-// });
-
-// interface PrevCloseData {
-//   [symbol: string]: number;
-// }
-
-// let token: string | null = null;
-// let userId: string | null = null;
-
-// const WatchlistScreen = () => {
-//   const [watchlists, setWatchlists] = useState<Watchlist[] | null>(null);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState<string | null>(null);
-//   const [currentIndex, setCurrentIndex] = useState(0);
-//   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
-//   const [prevCloses, setPrevCloses] = useState<PrevCloseData>({});
-
-//   useEffect(() => {
-//     const fetchWatchlistsAndSnapshots = async () => {
-//       try {
-//         if (Platform.OS === 'web') {
-//           token = await AsyncStorage.getItem('userToken');
-//           userId = await AsyncStorage.getItem('userId');
-//         } else {
-//           token = await SecureStore.getItemAsync('userToken');
-//           userId = await SecureStore.getItemAsync('userId');
-//         }
-
-//         const response = await axios.get(
-//           `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/watchlists/${userId}`
-//         );
-//         const fetchedWatchlists: Watchlist[] = response.data;
-//         setWatchlists(fetchedWatchlists);
-
-//         const allSymbols = Array.from(new Set(fetchedWatchlists.flatMap(w => w.symbols)));
-
-//         const snapshotResponse = await axios.get<SnapshotResponse>(
-//           'https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/alpaca/snapshots',
-//           {
-//             params: { symbols: allSymbols },
-//             paramsSerializer: (params) => {
-//               const query = new URLSearchParams();
-//               (params.symbols as string[]).forEach((symbol) =>
-//                 query.append('symbols', symbol)
-//               );
-//               return query.toString();
-//             },
-//             headers: {
-//               Authorization: `Bearer ${token}`,
-//             },
-//           }
-//         );
-//         const parsedSnapshots: Record<string, Snapshot> = JSON.parse(snapshotResponse.data.snapshots);
-
-//         const closes: PrevCloseData = {};
-//         for (const symbol of allSymbols) {
-//           closes[symbol] = parsedSnapshots[symbol]?.prevDailyBar?.c ?? null;
-//         }
-
-//         setPrevCloses(closes);
-
-//         await SignalRService.connectToMarketData(); // no handlers here
-
-//         // Register real-time quote listener
-//         SignalRService.registerQuoteListener((rawQuote: any) => {
-//           const parsed = parseQuote(rawQuote);
-//           setQuotes(prev => ({ ...prev, [parsed.Symbol]: parsed }));
-//         });
-
-//         for (const symbol of allSymbols) {
-//           await SignalRService.joinSymbolGroup(symbol);
-//         }
-
-//       } catch (error) {
-//         console.error('Error loading data:', error);
-//         setError(error instanceof Error ? error.message : 'Unknown error');
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-
-//     fetchWatchlistsAndSnapshots();
-
-//     return () => {
-//       SignalRService.disconnect();
-//     };
-//   }, []);
-
-//   if (loading) {
-//     return (
-//       <View style={styles.loader}>
-//         <ActivityIndicator size="large" color="#00ffcc" />
-//         <Text style={styles.text}>Loading watchlists...</Text>
-//       </View>
-//     );
-//   }
-
-//   if (error) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>Failed to load watchlists: {error}</Text>
-//       </View>
-//     );
-//   }
-
-//   if (!watchlists || watchlists.length === 0) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>No watchlists available</Text>
-//       </View>
-//     );
-//   }
-
-//   const currentWatchlist = watchlists[currentIndex];
-
-//   return (
-//     <View style={styles.container}>
-//       <View style={styles.navContainer}>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex(prev => Math.max(prev - 1, 0))}
-//           disabled={currentIndex === 0}
-//           style={[styles.navButton, currentIndex === 0 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>◀</Text>
-//         </TouchableOpacity>
-//         <Text style={styles.title}>{currentWatchlist.name}</Text>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex(prev => Math.min(prev + 1, watchlists.length - 1))}
-//           disabled={currentIndex === watchlists.length - 1}
-//           style={[styles.navButton, currentIndex === watchlists.length - 1 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>▶</Text>
-//         </TouchableOpacity>
-//       </View>
-
-//       <ScrollView style={styles.symbolList}>
-//         {currentWatchlist.symbols.map((symbol, index) => {
-//           const quote = quotes[symbol];
-//           const prevClose = prevCloses[symbol];
-//           const price = quote ? (quote.AskPrice + quote.BidPrice) / 2 : null;
-
-//           let changePercent = null;
-//           if (price != null && prevClose != null) {
-//             changePercent = ((price - prevClose) / prevClose) * 100;
-//           }
-
-//           const displayPrice = price?.toFixed(2) ?? '-';
-//           const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
-//           const color =
-//             changePercent == null
-//               ? '#fff'
-//               : changePercent > 0
-//               ? '#00ff00'
-//               : '#ff4d4d';
-
-//           return (
-//             <View key={index} style={styles.symbolItem}>
-//               <Text style={styles.symbolText}>{symbol}</Text>
-//               <Text style={{ color }}>{displayPrice} ({displayChange})</Text>
-//             </View>
-//           );
-//         })}
-//       </ScrollView>
-//     </View>
-//   );
-// };
-
-// export default WatchlistScreen;
-
-// const styles = StyleSheet.create({
-//   container: { flex: 1, backgroundColor: '#121212', padding: 16 },
-//   title: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 10, textAlign: 'center' },
-//   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   text: { color: '#ccc', fontSize: 16 },
-//   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   errorText: { color: '#ff4d4d', fontSize: 16 },
-//   navContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-//   navButton: {
-//     padding: 10,
-//     backgroundColor: '#1e90ff',
-//     borderRadius: 8,
-//   },
-//   disabledButton: { backgroundColor: '#555' },
-//   navText: { fontSize: 20, color: '#fff' },
-//   symbolList: { marginTop: 10 },
-//   symbolItem: {
-//     padding: 12,
-//     backgroundColor: '#1e1e1e',
-//     marginBottom: 8,
-//     borderRadius: 8,
-//     shadowColor: '#000',
-//     shadowOffset: { width: 0, height: 2 },
-//     shadowOpacity: 0.3,
-//     shadowRadius: 4,
-//     elevation: 5,
-//   },
-//   symbolText: { fontSize: 18, fontWeight: 'bold', color: '#FFD700' },
-// });
-
-
-// import { ThemedText } from '@/components/ThemedText';
-// import axios from 'axios';
-// import React, { useEffect, useState } from 'react';
-// import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform } from 'react-native';
-// import AsyncStorage from '@react-native-async-storage/async-storage';
-// import * as SecureStore from 'expo-secure-store';
-// import {
-//   connectToMarketData,
-//   joinSymbolGroup,
-//   disconnect,
-// } from '../../app/services/SignalRService';
-
-// interface Watchlist {
-//   symbols: string[];
-//   name: string;
-// }
-// interface SnapshotResponse {
-//   snapshots: string; // JSON string that needs parsing
-// }
-
-// interface Snapshot {
-//   prevDailyBar: {
-//     c: number; // previous close
-//     // other fields (h, l, o, v, etc.) if needed
-//   };
-// }
-
-// interface Quote {
-//   Symbol: string;
-//   BidPrice: number;
-//   AskPrice: number;
-//   // LastPrice: number;
-//   // ChangePercent: number;
-// }
-// const parseQuote = (raw: any): Quote => ({
-//   Symbol: raw.S,
-//   AskPrice: raw.ap,
-//   BidPrice: raw.bp,
-// });
-
-// interface PrevCloseData {
-//   [symbol: string]: number;
-// }
-
-// let token: string | null = null;
-// let userId: string | null = null;
-
-// const WatchlistScreen = () => {
-//   const [watchlists, setWatchlists] = useState<Watchlist[] | null>(null);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState<string | null>(null);
-//   const [currentIndex, setCurrentIndex] = useState(0);
-//   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
-//   const [prevCloses, setPrevCloses] = useState<PrevCloseData>({});
-
-//   useEffect(() => {
-//     const fetchWatchlistsAndSnapshots = async () => {
-//       try {
-//         if (Platform.OS === 'web') {
-//           token = await AsyncStorage.getItem('userToken');
-//           userId = await AsyncStorage.getItem('userId');
-//         } else {
-//           token = await SecureStore.getItemAsync('userToken');
-//           userId = await SecureStore.getItemAsync('userId');
-//         }
-
-//         const response = await axios.get(
-//           `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/watchlists/${userId}`
-//         );
-//         const fetchedWatchlists: Watchlist[] = response.data;
-//         setWatchlists(fetchedWatchlists);
-
-//         const allSymbols = Array.from(new Set(fetchedWatchlists.flatMap(w => w.symbols)));
-
-//         // Fetch and parse snapshots
-
-//         const snapshotResponse = await axios.get<SnapshotResponse>(
-//           'https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/alpaca/snapshots',
-//           {
-//             params: { symbols: allSymbols },
-//             paramsSerializer: (params) => {
-//               const query = new URLSearchParams();
-//               (params.symbols as string[]).forEach((symbol) =>
-//                 query.append('symbols', symbol)
-//               );
-//               return query.toString();
-//             },
-//             headers: {
-//               Authorization: `Bearer ${token}`,
-//             },
-//           }
-//         );
-//         const parsedSnapshots: Record<string, Snapshot> = JSON.parse(snapshotResponse.data.snapshots);
-
-//         const closes: PrevCloseData = {};
-//         for (const symbol of allSymbols) {
-//           closes[symbol] = parsedSnapshots[symbol]?.prevDailyBar?.c ?? null;
-//         }
-
-//         setPrevCloses(closes);
-
-//         // Setup SignalR
-//         // await connectToMarketData(
-//         //   () => {}, // onTrade
-//         //   (quote: Quote) => {
-//         //     setQuotes(prev => ({ ...prev, [quote.symbol]: quote }));
-//         //   },
-//         //   () => {} // onBar
-//         // );
-
-//         for (const symbol of allSymbols) {
-//           await joinSymbolGroup(symbol);
-//         }
-
-//       } catch (error) {
-//         console.error('Error loading data:', error);
-//         setError(error instanceof Error ? error.message : 'Unknown error');
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-
-//     fetchWatchlistsAndSnapshots();
-
-//     return () => {
-//       disconnect();
-//     };
-//   }, []);
-
-
-//   if (loading) {
-//     return (
-//       <View style={styles.loader}>
-//         <ActivityIndicator size="large" color="#00ffcc" />
-//         <Text style={styles.text}>Loading watchlists...</Text>
-//       </View>
-//     );
-//   }
-
-//   if (error) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>Failed to load watchlists: {error}</Text>
-//       </View>
-//     );
-//   }
-
-//   if (!watchlists || watchlists.length === 0) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>No watchlists available</Text>
-//       </View>
-//     );
-//   }
-
-//   const currentWatchlist = watchlists[currentIndex];
-
-//   return (
-//     <View style={styles.container}>
-//       {/* Navigation */}
-//       <View style={styles.navContainer}>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex(prev => Math.max(prev - 1, 0))}
-//           disabled={currentIndex === 0}
-//           style={[styles.navButton, currentIndex === 0 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>◀</Text>
-//         </TouchableOpacity>
-//         <Text style={styles.title}>{currentWatchlist.name}</Text>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex(prev => Math.min(prev + 1, watchlists.length - 1))}
-//           disabled={currentIndex === watchlists.length - 1}
-//           style={[styles.navButton, currentIndex === watchlists.length - 1 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>▶</Text>
-//         </TouchableOpacity>
-//       </View>
-
-//       {/* Symbols */}
-//       <ScrollView style={styles.symbolList}>
-//         {currentWatchlist.symbols.map((symbol, index) => {
-//           const quote = quotes[symbol];
-//           const prevClose = prevCloses[symbol];
-//           const price = (quote?.AskPrice+quote?.BidPrice)/2;
-
-//           let changePercent = null;
-//           if (price != null && prevClose != null) {
-//             changePercent = ((price - prevClose) / prevClose) * 100;
-//           }
-
-//           const displayPrice = price?.toFixed(2) ?? '-';
-//           const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
-//           const color =
-//           changePercent == null
-//             ? '#fff'
-//             : changePercent > 0
-//             ? '#00ff00'
-//             : changePercent < 0
-//             ? '#ff4d4d'
-//             : '#fff';
-//           return (
-//             <View key={index} style={styles.symbolItem}>
-//               <Text style={styles.symbolText}>{symbol}</Text>
-//               <Text style={{ color }}>{displayPrice} ({displayChange})</Text>
-//             </View>
-//           );
-//         })}
-//       </ScrollView>
-//     </View>
-//   );
-// };
-
-// export default WatchlistScreen;
-
-// const styles = StyleSheet.create({
-//   container: { flex: 1, backgroundColor: '#121212', padding: 16 },
-//   title: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 10, textAlign: 'center' },
-//   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   text: { color: '#ccc', fontSize: 16 },
-//   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   errorText: { color: '#ff4d4d', fontSize: 16 },
-//   navContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-//   navButton: {
-//     padding: 10,
-//     backgroundColor: '#1e90ff',
-//     borderRadius: 8,
-//   },
-//   disabledButton: { backgroundColor: '#555' },
-//   navText: { fontSize: 20, color: '#fff' },
-//   symbolList: { marginTop: 10 },
-//   symbolItem: {
-//     padding: 12,
-//     backgroundColor: '#1e1e1e',
-//     marginBottom: 8,
-//     borderRadius: 8,
-//     shadowColor: '#000',
-//     shadowOffset: { width: 0, height: 2 },
-//     shadowOpacity: 0.3,
-//     shadowRadius: 4,
-//     elevation: 5,
-//   },
-//   symbolText: { fontSize: 18, fontWeight: 'bold', color: '#FFD700' },
-// });
-
-
-// import { ThemedText } from '@/components/ThemedText';
-// import axios from 'axios';
-// import React, { useEffect, useState } from 'react';
-// import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform } from 'react-native';
-// import AsyncStorage from '@react-native-async-storage/async-storage';
-// import * as SecureStore from 'expo-secure-store';
-
-// interface Watchlist {
-//   symbols: string[];
-//   name: string;
-// }
-
-// let token: string | null = null;
-// let userId: string | null = null;
-
-// const WatchlistScreen = () => {
-//   const [watchlists, setWatchlists] = useState<Watchlist[] | null>(null);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState<string | null>(null);
-//   const [currentIndex, setCurrentIndex] = useState(0);
-
-//   useEffect(() => {
-//     const fetchWatchlists = async () => {
-//       try {
-//         if (Platform.OS === 'web') {
-//           token = await AsyncStorage.getItem('userToken');
-//           userId = await AsyncStorage.getItem('userId');
-//         } else {
-//           token = await SecureStore.getItemAsync('userToken');
-//           userId = await SecureStore.getItemAsync('userId');
-//         }
-        
-//         const response = await axios.get(
-//           `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/watchlists/${userId}`,
-//         );
-
-//         console.log('Fetched watchlists:', response.data);
-//         setWatchlists(response.data);
-//       } catch (error) {
-//         if (axios.isAxiosError(error)) {
-//           console.log("Axios error:", error.toJSON());
-//         }
-//         console.error('Error fetching watchlists', error);
-//         setError(error instanceof Error ? error.message : 'Unknown error');
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-
-//     fetchWatchlists();
-//   }, []);
-
-//   if (loading) {
-//     return (
-//       <View style={styles.loader}>
-//         <ActivityIndicator size="large" color="#00ffcc" />
-//         <Text style={styles.text}>Loading watchlists...</Text>
-//       </View>
-//     );
-//   }
-
-//   if (error) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>Failed to load watchlists: {error}</Text>
-//       </View>
-//     );
-//   }
-
-//   if (!watchlists || watchlists.length === 0) {
-//     return (
-//       <View style={styles.errorContainer}>
-//         <Text style={styles.errorText}>No watchlists available</Text>
-//       </View>
-//     );
-//   }
-
-//   const currentWatchlist = watchlists[currentIndex];
-
-//   return (
-//     <View style={styles.container}>
-//       {/* Navigation Buttons */}
-//       <View style={styles.navContainer}>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex((prev) => Math.max(prev - 1, 0))}
-//           disabled={currentIndex === 0}
-//           style={[styles.navButton, currentIndex === 0 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>◀</Text>
-//         </TouchableOpacity>
-//         <Text style={styles.title}>{currentWatchlist.name}</Text>
-//         <TouchableOpacity
-//           onPress={() => setCurrentIndex((prev) => Math.min(prev + 1, watchlists.length - 1))}
-//           disabled={currentIndex === watchlists.length - 1}
-//           style={[styles.navButton, currentIndex === watchlists.length - 1 && styles.disabledButton]}
-//         >
-//           <Text style={styles.navText}>▶</Text>
-//         </TouchableOpacity>
-//       </View>
-
-//       {/* Watchlist Symbols */}
-//       <ScrollView style={styles.symbolList}>
-//         {currentWatchlist.symbols.map((symbol, index) => (
-//           <View key={index} style={styles.symbolItem}>
-//             <Text style={styles.symbolText}>{symbol}</Text>
-//           </View>
-//         ))}
-//       </ScrollView>
-//     </View>
-//   );
-// };
-
-// export default WatchlistScreen;
-
-// const styles = StyleSheet.create({
-//   container: { flex: 1, backgroundColor: '#121212', padding: 16 },
-//   title: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 10, textAlign: 'center' },
-//   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   text: { color: '#ccc', fontSize: 16 },
-//   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//   errorText: { color: '#ff4d4d', fontSize: 16 },
-//   navContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-//   navButton: {
-//     padding: 10,
-//     backgroundColor: '#1e90ff',
-//     borderRadius: 8,
-//   },
-//   disabledButton: { backgroundColor: '#555' },
-//   navText: { fontSize: 20, color: '#fff' },
-//   symbolList: { marginTop: 10 },
-//   symbolItem: {
-//     padding: 12,
-//     backgroundColor: '#1e1e1e',
-//     marginBottom: 8,
-//     borderRadius: 8,
-//     shadowColor: '#000',
-//     shadowOffset: { width: 0, height: 2 },
-//     shadowOpacity: 0.3,
-//     shadowRadius: 4,
-//     elevation: 5,
-//   },
-//   symbolText: { fontSize: 18, fontWeight: 'bold', color: '#FFD700' },
-// });
-
-// // import { ThemedText } from '@/components/ThemedText';
-// // import axios from 'axios';
-// // import React, { useEffect, useState } from 'react';
-// // import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
-// // import { Platform } from 'react-native';
-// // import AsyncStorage from '@react-native-async-storage/async-storage';
-// // import * as SecureStore from 'expo-secure-store';
-
-// // interface Watchlist {
-// //   symbols: string[];
-// //   name: string;
-// // }
-// // let token: string | null = null;
-// // let userId : string| null = null; 
-
-// // const WatchlistScreen = () => {
-// //   const [watchlists, setWatchlists] = useState<Watchlist[] | null>(null);
-// //   const [loading, setLoading] = useState(true);
-// //   const [error, setError] = useState<string | null>(null);
-// //   const [currentIndex, setCurrentIndex] = useState(0);
-
-// //   useEffect(() => {
-// //     const fetchWatchlists = async () => {
-// //       try {
-
-// //         if (Platform.OS === 'web') {
-// //           token = await AsyncStorage.getItem('userToken');
-// //           userId = await AsyncStorage.getItem('userId');
-// //          }
-// //       else {
-// //           token = await SecureStore.getItemAsync('userToken');
-// //           userId = await SecureStore.getItemAsync('userId');
-// //          }
-// //         const response = await axios.get(
-// //           `https://ec2-18-188-45-142.us-east-2.compute.amazonaws.com/api/watchlists/${userId}`,
-// //           // { headers: { Accept: 'application/json' }, validateStatus: () => true }
-// //         );
-
-// //         console.log('Fetched watchlists:', response.data);
-// //         setWatchlists(response.data); // Corrected data assignment
-// //       } catch (error) {
-// //         if (axios.isAxiosError(error)) {
-// //           console.log("Axios error:", error.toJSON());  // Shows detailed error info
-// //       }         console.error('Error fetching watchlists', error);
-// //          setError(error instanceof Error ? error.message : 'Unknown error');
-// //       } finally {
-// //         setLoading(false);
-// //       }
-// //     };
-
-// //     fetchWatchlists();
-// //   }, []);
-
-// //   if (loading) {
-// //     return (
-// //       <View style={styles.loader}>
-// //         <ActivityIndicator size="large" color="#808080" />
-// //         <Text>Loading watchlists...</Text>
-// //       </View>
-// //     );
-// //   }
-
-// //   if (error) {
-// //     return (
-// //       <View style={styles.errorContainer}>
-// //         <Text style={styles.errorText}>Failed to load watchlists: {error}</Text>
-// //       </View>
-// //     );
-// //   }
-
-// //   if (!watchlists || watchlists.length === 0) {
-// //     return (
-// //       <View style={styles.errorContainer}>
-// //         <Text style={styles.errorText}>No watchlists available</Text>
-// //       </View>
-// //     );
-// //   }
-
-// //   const currentWatchlist = watchlists[currentIndex];
-
-// //   return (
-// //     <View style={styles.container}>
-// //       {/* Navigation Buttons */}
-// //       <View style={styles.navContainer}>
-// //         <TouchableOpacity
-// //           onPress={() => setCurrentIndex((prev) => Math.max(prev - 1, 0))}
-// //           disabled={currentIndex === 0}
-// //           style={[styles.navButton, currentIndex === 0 && styles.disabledButton]}
-// //         >
-// //           <Text style={styles.navText}>◀</Text>
-// //         </TouchableOpacity>
-// //         <Text style={styles.title}>{currentWatchlist.name}</Text>
-// //         <TouchableOpacity
-// //           onPress={() => setCurrentIndex((prev) => Math.min(prev + 1, watchlists.length - 1))}
-// //           disabled={currentIndex === watchlists.length - 1}
-// //           style={[styles.navButton, currentIndex === watchlists.length - 1 && styles.disabledButton]}
-// //         >
-// //           <Text style={styles.navText}>▶</Text>
-// //         </TouchableOpacity>
-// //       </View>
-
-// //       {/* Watchlist Symbols */}
-// //       <ScrollView style={styles.symbolList}>
-// //         {currentWatchlist.symbols.map((symbol, index) => (
-// //           <View key={index} style={styles.symbolItem}>
-// //             <Text style={styles.symbolText}>{symbol}</Text>
-// //           </View>
-// //         ))}
-// //       </ScrollView>
-// //     </View>
-// //   );
-// // };
-
-// // export default WatchlistScreen;
-
-// // const styles = StyleSheet.create({
-// //   container: {
-// //     flex: 1,
-// //     padding: 16,
-// //     backgroundColor: '#f5f5f5',
-// //   },
-// //   title: {
-// //     fontSize: 24,
-// //     fontWeight: 'bold',
-// //     marginBottom: 10,
-// //     color: '#333',
-// //     textAlign: 'center',
-// //   },
-// //   loader: {
-// //     flex: 1,
-// //     justifyContent: 'center',
-// //     alignItems: 'center',
-// //   },
-// //   errorContainer: {
-// //     flex: 1,
-// //     justifyContent: 'center',
-// //     alignItems: 'center',
-// //   },
-// //   errorText: {
-// //     color: 'red',
-// //     fontSize: 16,
-// //   },
-// //   navContainer: {
-// //     flexDirection: 'row',
-// //     justifyContent: 'space-between',
-// //     alignItems: 'center',
-// //     marginBottom: 20,
-// //   },
-// //   navButton: {
-// //     padding: 10,
-// //     backgroundColor: '#007bff',
-// //     borderRadius: 5,
-// //   },
-// //   disabledButton: {
-// //     backgroundColor: '#d3d3d3',
-// //   },
-// //   navText: {
-// //     fontSize: 20,
-// //     color: 'white',
-// //   },
-// //   symbolList: {
-// //     marginTop: 10,
-// //   },
-// //   symbolItem: {
-// //     padding: 10,
-// //     backgroundColor: '#fff',
-// //     marginBottom: 8,
-// //     borderRadius: 8,
-// //     shadowColor: '#000',
-// //     shadowOffset: { width: 0, height: 2 },
-// //     shadowOpacity: 0.1,
-// //     shadowRadius: 4,
-// //     elevation: 3,
-// //   },
-// //   symbolText: {
-// //     fontSize: 18,
-// //     fontWeight: 'bold',
-// //     color: '#007bff',
-// //   },
-// // });
