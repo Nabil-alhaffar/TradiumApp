@@ -8,15 +8,38 @@ import {
   Modal,
   Platform,
   Dimensions,
+  Animated,
 } from 'react-native';
 import { connectToMarketData, joinSymbolGroup, leaveSymbolGroup, registerQuoteListener, removeQuoteListener } from '../app/services/SignalRService';
 import axiosInstance from '../app/services/AxiosInstance';
+
+interface Position {
+  symbol: string;
+  quantity: number;
+  positionRatio: number;
+  type: string;
+  averagePurchasePrice: number;
+  totalCost: number;
+  marketValue: number;
+}
+
+interface QuoteData {
+  high: number;
+  low: number;
+  lastPrice: number;
+  previousClose: number;
+  change: number;
+  changePercent: number;
+}
 
 interface FloatingTradePanelProps {
   symbol: string;
   currentPrice: number;
   onTrade: (type: string, quantity: string) => void;
   userId: string | null;
+  position?: Position | null;
+  quote?: QuoteData | null;
+  assetClass?: string;
 }
 
 interface QuoteUpdate {
@@ -33,14 +56,19 @@ const FloatingTradePanel: React.FC<FloatingTradePanelProps> = ({
   currentPrice,
   onTrade,
   userId,
+  position,
+  quote,
+  assetClass,
 }) => {
   const [livePrice, setLivePrice] = useState<number>(currentPrice);
-  const [quantity, setQuantity] = useState('1');
+  const [quantity, setQuantity] = useState('0');
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedOrderType, setSelectedOrderType] = useState('');
   const [priceChange, setPriceChange] = useState<number>(0);
   const [priceChangePercent, setPriceChangePercent] = useState<number>(0);
   const [previousPrice, setPreviousPrice] = useState<number>(currentPrice);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const animatedWidth = React.useRef(new Animated.Value(320)).current;
 
   const orderTypes = ['Buy', 'Sell', 'Short', 'CloseShort'];
 
@@ -91,6 +119,14 @@ const FloatingTradePanel: React.FC<FloatingTradePanelProps> = ({
     };
   }, [symbol, userId, currentPrice]);
 
+  useEffect(() => {
+    Animated.timing(animatedWidth, {
+      toValue: isCollapsed ? 40 : 320,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+  }, [isCollapsed]);
+
   const getPriceColor = () => {
     if (livePrice > previousPrice) return '#4CAF50';
     if (livePrice < previousPrice) return '#FF5252';
@@ -98,43 +134,115 @@ const FloatingTradePanel: React.FC<FloatingTradePanelProps> = ({
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.priceContainer}>
-        <Text style={styles.symbolText}>{symbol}</Text>
-        <Text style={[styles.priceText, { color: getPriceColor() }]}>
-          ${livePrice.toFixed(2)}
-        </Text>
-        <View style={styles.changeContainer}>
-          <Text style={[styles.changeText, { color: priceChange >= 0 ? '#4CAF50' : '#FF5252' }]}>
-            {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent.toFixed(2)}%)
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.quantityContainer}>
-        <Text style={styles.label}>Quantity:</Text>
-        <TextInput
-          style={styles.quantityInput}
-          value={quantity}
-          onChangeText={setQuantity}
-          keyboardType="numeric"
-          placeholder="Enter quantity"
-          placeholderTextColor="#666"
-        />
-      </View>
-
-      <View style={styles.buttonContainer}>
-        {orderTypes.map((type) => (
-          <TouchableOpacity
-            key={type}
-            style={[styles.tradeButton, { backgroundColor: type.includes('Buy') ? '#4CAF50' : '#FF5252' }]}
-            onPress={() => onTrade(type, quantity)}
-          >
-            <Text style={styles.buttonText}>{type}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
+    <Animated.View style={[styles.container, { width: animatedWidth }]}>
+      {/* Collapse/Expand Toggle Button */}
+      <TouchableOpacity
+        style={styles.collapseButton}
+        onPress={() => setIsCollapsed(!isCollapsed)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.collapseIcon}>{isCollapsed ? '▶' : '◀'}</Text>
+        {isCollapsed && (
+          <Text style={styles.collapseText}>Expand Trading Panel</Text>
+        )}
+      </TouchableOpacity>
+      {/* Only render the rest if not collapsed */}
+      {!isCollapsed && (
+        <>
+          {/* Ticker and Asset Class */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}>
+            <Text style={styles.symbolText}>{symbol}</Text>
+            {assetClass && (
+              <Text style={styles.assetClass}>
+                <Text style={{ fontStyle: 'italic', color: '#AAA' }}>({assetClass.replace(/-/g, ' ').toUpperCase()})</Text>
+              </Text>
+            )}
+          </View>
+          {/* Quote Data Section */}
+          {quote && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Quote</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>High:</Text>
+                <Text style={styles.value}>${quote.high.toFixed(2)}</Text>
+                <Text style={styles.label}>Low:</Text>
+                <Text style={styles.value}>${quote.low.toFixed(2)}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Last:</Text>
+                <Text style={styles.value}>${quote.lastPrice.toFixed(2)}</Text>
+                <Text style={styles.label}>Prev Close:</Text>
+                <Text style={styles.value}>${quote.previousClose.toFixed(2)}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Change:</Text>
+                <Text style={[styles.value, { color: quote.change >= 0 ? '#4CAF50' : '#FF5252' }]}>
+                  {quote.change >= 0 ? '+' : ''}{quote.change.toFixed(2)}
+                </Text>
+                <Text style={styles.label}>%</Text>
+                <Text style={[styles.value, { color: quote.changePercent >= 0 ? '#4CAF50' : '#FF5252' }]}>
+                  {quote.changePercent.toFixed(2)}%
+                </Text>
+              </View>
+            </View>
+          )}
+          {/* Position Section */}
+          {position && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Current Position</Text>
+              <View style={styles.row}>
+                <Text style={styles.label}>Qty:</Text>
+                <Text style={styles.value}>{position.quantity}</Text>
+                <Text style={styles.label}>Type:</Text>
+                <Text style={styles.value}>{position.type}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Avg Price:</Text>
+                <Text style={styles.value}>${position.averagePurchasePrice.toFixed(2)}</Text>
+                <Text style={styles.label}>Cost:</Text>
+                <Text style={styles.value}>${position.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Market Value:</Text>
+                <Text style={styles.value}>${position.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </View>
+            </View>
+          )}
+          {/* Live Price Section */}
+          <View style={styles.priceContainer}>
+            <Text style={[styles.priceText, { color: getPriceColor() }]}>${livePrice.toFixed(2)}</Text>
+            <View style={styles.changeContainer}>
+              <Text style={[styles.changeText, { color: priceChange >= 0 ? '#4CAF50' : '#FF5252' }]}>
+                {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent.toFixed(2)}%)
+              </Text>
+            </View>
+          </View>
+          {/* Trade Controls */}
+          <View style={styles.quantityContainer}>
+            <Text style={styles.label}>Quantity:</Text>
+            <TextInput
+              style={styles.quantityInput}
+              value={quantity}
+              onChangeText={setQuantity}
+              keyboardType="numeric"
+              placeholder="Enter quantity"
+              placeholderTextColor="#666"
+            />
+          </View>
+          <View style={styles.buttonContainer}>
+            {orderTypes.map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[styles.tradeButton, { backgroundColor: type.includes('Buy') ? '#4CAF50' : '#FF5252' }]}
+                onPress={() => onTrade(type, quantity)}
+              >
+                <Text style={styles.buttonText}>{type}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
+    </Animated.View>
   );
 };
 
@@ -143,7 +251,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: Platform.OS === 'web' ? 20 : 10,
     top: Platform.OS === 'web' ? 100 : 80,
-    width: 300,
     backgroundColor: '#1E1E1E',
     borderRadius: 12,
     padding: 16,
@@ -161,6 +268,68 @@ const styles = StyleSheet.create({
       cursor: 'auto',
     } : {}),
   },
+  collapseButton: {
+    position: 'absolute',
+    left: -18,
+    top: '50%',
+    marginTop: -18,
+    width: 36,
+    height: 36,
+    backgroundColor: '#23272F',
+    borderTopLeftRadius: 18,
+    borderBottomLeftRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1100,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  collapseIcon: {
+    color: '#FFD700',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  collapseText: {
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 2,
+    textAlign: 'center',
+    maxWidth: 90,
+  },
+  section: {
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  sectionTitle: {
+    color: '#FFD700',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+    gap: 8,
+  },
+  label: {
+    color: '#AAA',
+    fontSize: 13,
+    marginRight: 2,
+  },
+  value: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginRight: 8,
+  },
   priceContainer: {
     alignItems: 'center',
     marginBottom: 16,
@@ -169,6 +338,14 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 20,
     fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  assetClass: {
+    color: '#AAA',
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginLeft: 6,
+    opacity: 0.95,
     marginBottom: 8,
   },
   priceText: {
@@ -186,11 +363,6 @@ const styles = StyleSheet.create({
   },
   quantityContainer: {
     marginBottom: 16,
-  },
-  label: {
-    color: '#AAA',
-    fontSize: 14,
-    marginBottom: 4,
   },
   quantityInput: {
     backgroundColor: '#2A2A2A',
@@ -215,7 +387,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#FFF',
     fontSize: 14,
-    fontWeight: 'bold',
   },
 });
 

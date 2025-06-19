@@ -21,6 +21,7 @@ import { format, parseISO } from 'date-fns';
 import { debounce } from 'lodash';
 import { Portal, Provider as PaperProvider } from 'react-native-paper';
 import FloatingTradePanel from '../../components/FloatingTradePanel';
+import LivePriceBanner from '../../components/LivePriceBanner';
 
 interface FinnhubProfile {
   name: string;
@@ -129,6 +130,8 @@ interface Stock {
   description: string;
   logoURL: string;
   officialSite: string;
+  AverageTradingVolume10Day:number,
+  assetClass?: string,
   quote: {
     symbol: string;
     high: number;
@@ -271,6 +274,48 @@ const getMarketHour = (hour: string) => {
   }
 };
 
+const extraMetricGroups: { [category: string]: { key: string; label: string }[] } = {
+  'Liquidity': [
+    { key: 'currentRatioAnnual', label: 'Current Ratio (Annual)' },
+    { key: 'currentRatioQuarterly', label: 'Current Ratio (Quarterly)' },
+    { key: 'quickRatioAnnual', label: 'Quick Ratio (Annual)' },
+    { key: 'quickRatioQuarterly', label: 'Quick Ratio (Quarterly)' },
+  ],
+  'Leverage': [
+    { key: 'totalDebt/totalEquityAnnual', label: 'Debt/Equity (Annual)' },
+    { key: 'totalDebt/totalEquityQuarterly', label: 'Debt/Equity (Quarterly)' },
+  ],
+  'Per Share': [
+    { key: 'bookValuePerShareAnnual', label: 'Book Value/Share (Annual)' },
+    { key: 'cashFlowPerShareTTM', label: 'Cash Flow/Share (TTM)' },
+    { key: 'epsAnnual', label: 'EPS (Annual)' },
+    { key: 'epsTTM', label: 'EPS (TTM)' },
+    { key: 'revenuePerShareAnnual', label: 'Revenue/Share (Annual)' },
+    { key: 'revenuePerShareTTM', label: 'Revenue/Share (TTM)' },
+  ],
+  'Other': [] // fallback group
+};
+
+function prettifyMetricKey(key: string) {
+  // Fallback prettifier for unmapped keys
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/\bTTM\b/, '(TTM)')
+    .replace(/\b3Y\b/, '(3Y)')
+    .replace(/\b5Y\b/, '(5Y)')
+    .replace(/\bYoy\b/, 'YoY')
+    .replace(/\bRfy\b/, '(Recent FY)')
+    .replace(/\bQtr\b/, '(Quarter)')
+    .replace(/\bAnnual\b/, '(Annual)')
+    .replace(/\bQuarterly\b/, '(Quarterly)')
+    .replace(/\bPer Share\b/, '/Share')
+    .replace(/\b\d+\b/g, match => `(${match})`)
+    .replace(/\s+/, ' ')
+    .replace(/^./, s => s.toUpperCase())
+    .trim();
+}
+
 const TradeScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchedSymbol, setSearchedSymbol] = useState('');
@@ -293,6 +338,12 @@ const TradeScreen = () => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputLayout, setInputLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const searchContainerRef = useRef<View>(null);
+  const [isOtherMetricsExpanded, setIsOtherMetricsExpanded] = useState(false);
+  const [isInfoCardExpanded, setIsInfoCardExpanded] = useState(false);
+  const [isBannerFloating, setIsBannerFloating] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [bannerWidth, setBannerWidth] = useState(360);
+  const bannerRef = useRef<View>(null);
 
   const debouncedSearch = React.useCallback(
     debounce(async (query: string) => {
@@ -328,16 +379,26 @@ const TradeScreen = () => {
 
   const measureInputPosition = () => {
     if (searchContainerRef.current) {
-      const handle = findNodeHandle(searchContainerRef.current);
-      if (handle) {
-        searchContainerRef.current.measure((_x: number, _y: number, width: number, height: number, pageX: number, pageY: number) => {
-          setInputLayout({
-            x: pageX,
-            y: pageY,
-            width,
-            height
-          });
+      if (Platform.OS === 'web') {
+        // @ts-ignore: web only
+        const rect = searchContainerRef.current.getBoundingClientRect();
+        setInputLayout({
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
         });
+      } else {
+        searchContainerRef.current.measure(
+          (_x: number, _y: number, width: number, height: number, pageX: number, pageY: number) => {
+            setInputLayout({
+              x: pageX,
+              y: pageY,
+              width,
+              height,
+            });
+          }
+        );
       }
     }
   };
@@ -372,6 +433,21 @@ const TradeScreen = () => {
         axiosInstance.get<AnalystRecommendation[]>(`/finnhub/recommendations/${searchedSymbol}`)
       ]);
 
+      // Try to find the assetClass for the current symbol from suggestions
+      let assetClass: string | undefined = undefined;
+      const foundSuggestion = suggestions.find(s => s.symbol.toUpperCase() === searchedSymbol.toUpperCase());
+      if (foundSuggestion) {
+        assetClass = foundSuggestion.assetClass;
+      }
+      // If not found in suggestions, fetch from search endpoint
+      if (!assetClass && searchedSymbol) {
+        try {
+          const resp = await axiosInstance.get<StockSuggestion[]>('/alpaca/search', { params: { q: searchedSymbol } });
+          const match = resp.data.find(s => s.symbol.toUpperCase() === searchedSymbol.toUpperCase());
+          if (match) assetClass = match.assetClass;
+        } catch {}
+      }
+
       const profile = profileResponse.data;
       const quote = quoteResponse.data;
       setFinancials(financialsResponse.data);
@@ -391,12 +467,14 @@ const TradeScreen = () => {
         marketValue: profile.marketCapitalization * 1000000,
         high52Week: financialsResponse.data.metric['52WeekHigh'],
         low52Week: financialsResponse.data.metric['52WeekLow'],
-        eps: financialsResponse.data.metric.eps || 0,
+        eps: financialsResponse.data.metric.peAnnual || 0,
+        AverageTradingVolume10Day:financialsResponse.data.metric['10DayAverageTradingVolume'],
         stockSector: profile.finnhubIndustry,
         exchange: profile.exchange,
         description: `${profile.name} is a ${profile.finnhubIndustry} company listed on ${profile.exchange}. IPO Date: ${profile.ipo}`,
         logoURL: profile.logo,
         officialSite: profile.weburl,
+        assetClass,
         quote: {
           symbol: profile.ticker,
           high: quote.h,
@@ -422,8 +500,8 @@ const TradeScreen = () => {
 
     try {
       const response = await axiosInstance.post('/Stock/execute-trade', {
-        symbol: stock.symbol,
-        quantity: parseInt(quantity),
+          symbol: stock.symbol,
+          quantity: parseInt(quantity),
         side: type,
       });
 
@@ -465,31 +543,81 @@ const TradeScreen = () => {
       setIsExistingPosition(false);
     }
   };
+
+  // Add scroll handler for sticky/floating banner
+  const handleScroll = (event: any) => {
+    const y = event.nativeEvent.contentOffset.y;
+    // Adjust 120 to the height of your banner + margin
+    setIsBannerFloating(y > 120);
+  };
   
   return (
     <PaperProvider>
       <View style={{ flex: 1, position: 'relative' }}>
-        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 50 }}>
+        {/* Absolutely positioned full banner to the left of the lookup interface */}
+        {stock && !isBannerFloating && inputLayout.width > 0 && (
+          <View
+            ref={bannerRef}
+            onLayout={e => setBannerWidth(e.nativeEvent.layout.width)}
+            style={{
+              position: 'absolute',
+              // left: Math.max(inputLayout.x - bannerWidth - 64, 16), // dynamic banner width, 64px gap, 16 is margin
+              left:16,
+              top: inputLayout.y, // align tops
+              zIndex: 2000,
+            }}>
+            <LivePriceBanner
+              symbol={stock.symbol}
+              exchange={stock.exchange}
+              livePrice={stock.currentPrice}
+              change={stock.quote.change}
+              changePercent={stock.quote.changePercent}
+              assetClass={stock.assetClass}
+              compact={false}
+            />
+          </View>
+        )}
+        {/* Floating compact banner */}
+        {stock && isBannerFloating && (
+          <View style={{ position: 'absolute', top: 0, left: 0, width: '100%', zIndex: 3000 }}>
+            <LivePriceBanner
+              symbol={stock.symbol}
+              exchange={stock.exchange}
+              livePrice={stock.currentPrice}
+              change={stock.quote.change}
+              changePercent={stock.quote.changePercent}
+              assetClass={stock.assetClass}
+              compact={true}
+            />
+          </View>
+        )}
+        <ScrollView
+          ref={scrollViewRef}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          style={styles.container}
+          contentContainerStyle={{ paddingBottom: 50 }}
+        >
           <View 
             ref={searchContainerRef}
             style={styles.lookUpInterface}
             onLayout={measureInputPosition}
           >
-            <TextInput
-              style={styles.inputField}
+        <TextInput
+          style={styles.inputField}
               onChangeText={handleSearchChange}
               placeholder="Search by symbol or company name"
-              placeholderTextColor="#aaa"
+          placeholderTextColor="#aaa"
               value={searchQuery}
               onFocus={() => {
                 setShowSuggestions(true);
                 measureInputPosition();
               }}
-            />
-            <TouchableOpacity style={styles.lookUpButton} onPress={fetchStock}>
+        />
+        <TouchableOpacity style={styles.lookUpButton} onPress={fetchStock}>
               <IconSymbol size={28} name="magnifyingglass" color="#000" />
-            </TouchableOpacity>
-          </View>
+        </TouchableOpacity>
+      </View>
 
           <Portal>
             {showSuggestions && suggestions.length > 0 && (
@@ -520,6 +648,11 @@ const TradeScreen = () => {
                           <View style={styles.suggestionContent}>
                             <View style={styles.suggestionMain}>
                               <Text style={styles.symbolText}>{suggestion.symbol}</Text>
+                              {suggestion.assetClass && (
+                                <Text style={{ color: '#FFD700', fontSize: 12, marginLeft: 6, fontWeight: 'bold' }}>
+                                  ({suggestion.assetClass.replace(/-/g, ' ').toUpperCase()})
+                                </Text>
+                              )}
                               <Text style={styles.exchangeText}>{suggestion.exchange}</Text>
                             </View>
                             <Text style={styles.nameText} numberOfLines={1}>
@@ -535,48 +668,75 @@ const TradeScreen = () => {
             )}
           </Portal>
 
-          {stock && (
-            <>
-              {/* Stock Info Card */}
+      {stock && (
+        <>
+              {/* Improved Logo Display */}
+          {stock.logoURL && (
+                <View style={{ alignItems: 'center', marginTop: 10, marginBottom: 10 }}>
+              <Image
+                source={{ uri: stock.logoURL }}
+                    style={{ width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: '#FFF', backgroundColor: '#222', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}
+                resizeMode="contain"
+              />
+                </View>
+              )}
+              {/* Collapsible Stock Info Card */}
               <View style={styles.stockCard}>
-                {stock.logoURL && (
-                  <Image
-                    source={{ uri: stock.logoURL }}
-                    style={{ width: 100, height: 100, marginTop: 10, marginBottom: 50, alignSelf: 'center' }}
-                    resizeMode="contain"
-                  />
-                )}
-                {Object.entries({
-                  Symbol: stock.symbol,
-                  Company: stock.companyName,
-                  'Current Price': `$${stock.currentPrice.toFixed(2)}`,
-                  Country: stock.country,
-                  'Market Value': stock.marketValue ? `$${stock.marketValue.toLocaleString()}` : 'N/A',
-                  '52 Week High': `$${stock.high52Week.toFixed(2)}`,
-                  '52 Week Low': `$${stock.low52Week.toFixed(2)}`,
-                  EPS: stock.eps.toFixed(2),
-                  Sector: stock.stockSector,
-                  Exchange: stock.exchange,
-                  'Official Site': stock.officialSite,
-                }).reduce((rows, entry, index) => {
-                  const rowIndex = Math.floor(index / 3);
-                  if (!rows[rowIndex]) rows[rowIndex] = [];
-                  rows[rowIndex].push(entry);
-                  return rows;
-                }, [] as [string, any][][]).map((row, rowIndex) => (
-                  <View key={rowIndex} style={styles.cardRowMulti}>
-                    {row.map(([label, value]) => (
-                      <View key={label} style={{ flex: 1 }}>
-                        <Text style={styles.cardLabel}>{label}</Text>
-                        <Text style={styles.cardValue}>{value}</Text>
-                      </View>
-                    ))}
+                {/* First row always visible */}
+                <View style={styles.cardRowMulti}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardLabel}>Symbol</Text>
+                    <Text style={styles.cardValue}>{stock.symbol}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardLabel}>Company</Text>
+                    <Text style={styles.cardValue}>{stock.companyName}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardLabel}>Current Price</Text>
+                    <Text style={styles.cardValue}>${stock.currentPrice.toFixed(2)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardLabel}>Market Value</Text>
+                    <Text style={styles.cardValue}>{stock.marketValue ? `$${stock.marketValue.toLocaleString()}` : 'N/A'}</Text>
+                  </View>
+                </View>
+                {/* Toggle button */}
+                <TouchableOpacity style={{ alignSelf: 'center', marginVertical: 6 }} onPress={() => setIsInfoCardExpanded(!isInfoCardExpanded)}>
+                  <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{isInfoCardExpanded ? 'Hide Details ▲' : 'Show Details ▼'}</Text>
+                </TouchableOpacity>
+                {/* Rest of the info card, collapsible */}
+                {isInfoCardExpanded && (
+                  <>
+            {Object.entries({
+              Country: stock.country,
+                      '52 Week High': `$${stock.high52Week.toFixed(2)}`,
+                      '52 Week Low': `$${stock.low52Week.toFixed(2)}`,
+                      'Average Trading Volume (10D)': stock.AverageTradingVolume10Day !== undefined ? stock.AverageTradingVolume10Day.toLocaleString() : 'N/A',
+                      EPS: stock.eps.toFixed(2),
+              Sector: stock.stockSector,
+              Exchange: stock.exchange,
+              'Official Site': stock.officialSite,
+            }).reduce((rows, entry, index) => {
+                      const rowIndex = Math.floor(index / 4); // 4 per row
+              if (!rows[rowIndex]) rows[rowIndex] = [];
+              rows[rowIndex].push(entry);
+              return rows;
+            }, [] as [string, any][][]).map((row, rowIndex) => (
+              <View key={rowIndex} style={styles.cardRowMulti}>
+                {row.map(([label, value]) => (
+                  <View key={label} style={{ flex: 1 }}>
+                    <Text style={styles.cardLabel}>{label}</Text>
+                    <Text style={styles.cardValue}>{value}</Text>
                   </View>
                 ))}
-
-                <Text style={styles.stockDescription}>{stock.description}</Text>
               </View>
-
+            ))}
+            <Text style={styles.stockDescription}>{stock.description}</Text>
+                  </>
+                )}
+          </View>
+  
               {/* Financial Metrics Dropdown */}
               <View style={styles.metricsContainer}>
                 <TouchableOpacity
@@ -627,257 +787,257 @@ const TradeScreen = () => {
                   </View>
                 )}
               </View>
+              <View style={styles.chartContainer}>
+            <StockChart 
+              symbol={stock.symbol}
+                    timeframe="1D"
+              chartType="candlestick"
+            />
+        </View>
+                 
+               
+                {/* News Section */}
+                <View style={styles.newsContainer}>
+                  <TouchableOpacity
+                    style={styles.newsHeader}
+                    onPress={() => setIsNewsExpanded(!isNewsExpanded)}
+                  >
+                    <Text style={styles.newsHeaderText}>Latest News</Text>
+                    <Text style={styles.expandIcon}>{isNewsExpanded ? '▼' : '▶'}</Text>
+                  </TouchableOpacity>
 
-              {/* News Section */}
-              <View style={styles.newsContainer}>
-                <TouchableOpacity
-                  style={styles.newsHeader}
-                  onPress={() => setIsNewsExpanded(!isNewsExpanded)}
-                >
-                  <Text style={styles.newsHeaderText}>Latest News</Text>
-                  <Text style={styles.expandIcon}>{isNewsExpanded ? '▼' : '▶'}</Text>
-                </TouchableOpacity>
-
-                {isNewsExpanded && (
-                  <View style={styles.newsContent}>
-                    <ScrollView style={styles.newsList}>
-                      {news.map((item) => (
-                        <TouchableOpacity
-                          key={item.id}
-                          style={styles.newsItem}
-                          onPress={() => {
-                            if (Platform.OS === 'web') {
-                              window.open(item.url, '_blank');
-                            }
-                          }}
-                        >
-                          <View style={styles.newsItemHeader}>
-                            <Text style={styles.newsSource}>{item.source}</Text>
-                            <Text style={styles.newsAuthor}>{item.author}</Text>
-                          </View>
-                          <Text style={styles.newsHeadline}>{item.headline}</Text>
-                          <Text style={styles.newsSummary} numberOfLines={2}>
-                            {item.summary}
-                          </Text>
-                          <View style={styles.newsSymbols}>
-                            {item.symbols.map((symbol) => (
-                              <View key={symbol} style={styles.symbolTag}>
-                                <Text style={styles.symbolTagText}>{symbol}</Text>
-                              </View>
-                            ))}
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-
-              {/* Earnings Calendar Section */}
-              <View style={styles.earningsContainer}>
-                <TouchableOpacity
-                  style={styles.sectionHeader}
-                  onPress={() => setIsEarningsExpanded(!isEarningsExpanded)}
-                >
-                  <Text style={styles.sectionHeaderText}>Earnings Calendar</Text>
-                  <Text style={styles.expandIcon}>{isEarningsExpanded ? '▼' : '▶'}</Text>
-                </TouchableOpacity>
-
-                {isEarningsExpanded && (
-                  <View style={styles.earningsContent}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {earnings.map((earning) => (
-                        <View key={`${earning.date}-${earning.quarter}`} style={styles.earningCard}>
-                          <Text style={styles.earningDate}>
-                            {format(parseISO(earning.date), 'MMM d, yyyy')}
-                          </Text>
-                          <Text style={styles.earningHour}>{getMarketHour(earning.hour)}</Text>
-                          <Text style={styles.earningQuarter}>Q{earning.quarter}</Text>
-                          <View style={styles.earningMetric}>
-                            <Text style={styles.metricLabel}>EPS Est.</Text>
-                            <Text style={styles.metricValue}>${earning.epsEstimate.toFixed(2)}</Text>
-                            {earning.epsActual && (
-                              <Text style={[
-                                styles.metricActual,
-                                { color: earning.epsActual >= earning.epsEstimate ? '#4CAF50' : '#FF5252' }
-                              ]}>
-                                Actual: ${earning.epsActual.toFixed(2)}
-                              </Text>
-                            )}
-                          </View>
-                          <View style={styles.earningMetric}>
-                            <Text style={styles.metricLabel}>Revenue Est.</Text>
-                            <Text style={styles.metricValue}>{formatCurrency(earning.revenueEstimate)}</Text>
-                            {earning.revenueActual && (
-                              <Text style={[
-                                styles.metricActual,
-                                { color: earning.revenueActual >= earning.revenueEstimate ? '#4CAF50' : '#FF5252' }
-                              ]}>
-                                Actual: {formatCurrency(earning.revenueActual)}
-                              </Text>
-                            )}
-                          </View>
+                  {isNewsExpanded && (
+                    <View style={styles.newsContent}>
+                      <ScrollView style={styles.newsList}>
+                        {news.map((item) => (
+                          <TouchableOpacity
+                            key={item.id}
+                            style={styles.newsItem}
+                            onPress={() => {
+                              if (Platform.OS === 'web') {
+                                window.open(item.url, '_blank');
+                              }
+                            }}
+                          >
+                            <View style={styles.newsItemHeader}>
+                              <Text style={styles.newsSource}>{item.source}</Text>
+                              <Text style={styles.newsAuthor}>{item.author}</Text>
+                            </View>
+                            <Text style={styles.newsHeadline}>{item.headline}</Text>
+                            <Text style={styles.newsSummary} numberOfLines={2}>
+                              {item.summary}
+                            </Text>
+                            <View style={styles.newsSymbols}>
+                              {item.symbols.map((symbol) => (
+                                <View key={symbol} style={styles.symbolTag}>
+                                  <Text style={styles.symbolTagText}>{symbol}</Text>
                         </View>
                       ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-
-              {/* Analyst Recommendations Section */}
-              <View style={styles.recommendationsContainer}>
-                <TouchableOpacity
-                  style={styles.sectionHeader}
-                  onPress={() => setIsRecommendationsExpanded(!isRecommendationsExpanded)}
-                >
-                  <Text style={styles.sectionHeaderText}>Analyst Recommendations</Text>
-                  <Text style={styles.expandIcon}>{isRecommendationsExpanded ? '▼' : '▶'}</Text>
-                </TouchableOpacity>
-
-                {isRecommendationsExpanded && recommendations.length > 0 && (
-                  <View style={styles.recommendationsContent}>
-                    <View style={styles.latestRecommendation}>
-                      {(() => {
-                        const latest = recommendations[0];
-                        const total = latest.strongBuy + latest.buy + latest.hold + latest.sell + latest.strongSell;
-                        return (
-                          <>
-                            <Text style={styles.recommendationPeriod}>
-                              {format(parseISO(latest.period), 'MMMM yyyy')}
-                            </Text>
-                            <View style={styles.recommendationBar}>
-                              <View style={[styles.barSegment, { backgroundColor: '#00C853', width: `${(latest.strongBuy / total) * 100}%` }]}>
-                                <Text style={styles.barText}>{latest.strongBuy}</Text>
-                              </View>
-                              <View style={[styles.barSegment, { backgroundColor: '#4CAF50', width: `${(latest.buy / total) * 100}%` }]}>
-                                <Text style={styles.barText}>{latest.buy}</Text>
-                              </View>
-                              <View style={[styles.barSegment, { backgroundColor: '#FFD740', width: `${(latest.hold / total) * 100}%` }]}>
-                                <Text style={styles.barText}>{latest.hold}</Text>
-                              </View>
-                              <View style={[styles.barSegment, { backgroundColor: '#FF5252', width: `${(latest.sell / total) * 100}%` }]}>
-                                <Text style={styles.barText}>{latest.sell}</Text>
-                              </View>
-                              <View style={[styles.barSegment, { backgroundColor: '#D50000', width: `${(latest.strongSell / total) * 100}%` }]}>
-                                <Text style={styles.barText}>{latest.strongSell}</Text>
-                              </View>
-                            </View>
-                            <View style={styles.recommendationLegend}>
-                              <View style={styles.legendItem}>
-                                <View style={[styles.legendColor, { backgroundColor: '#00C853' }]} />
-                                <Text style={styles.legendText}>Strong Buy</Text>
-                              </View>
-                              <View style={styles.legendItem}>
-                                <View style={[styles.legendColor, { backgroundColor: '#4CAF50' }]} />
-                                <Text style={styles.legendText}>Buy</Text>
-                              </View>
-                              <View style={styles.legendItem}>
-                                <View style={[styles.legendColor, { backgroundColor: '#FFD740' }]} />
-                                <Text style={styles.legendText}>Hold</Text>
-                              </View>
-                              <View style={styles.legendItem}>
-                                <View style={[styles.legendColor, { backgroundColor: '#FF5252' }]} />
-                                <Text style={styles.legendText}>Sell</Text>
-                              </View>
-                              <View style={styles.legendItem}>
-                                <View style={[styles.legendColor, { backgroundColor: '#D50000' }]} />
-                                <Text style={styles.legendText}>Strong Sell</Text>
-                              </View>
-                            </View>
-                          </>
-                        );
-                      })()}
                     </View>
-                  </View>
-                )}
-              </View>
-
-              <View>
-                <View style={styles.chartContainer}>
-                  <StockChart
-                    symbol={stock.symbol}
-                    timeframe="1min"
-                    chartType="candlestick"
-                  />
+                          </TouchableOpacity>
+                  ))}
+                      </ScrollView>
+          </View>
+                  )}
                 </View>
-              </View>
 
-              {/* Quote Card */}
-              <View style={styles.stockCard}>
-                <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8, outlineColor: '#FFF', borderColor: '#FFF' }}>Quote Data</Text>
-                {Object.entries({
-                  High: `$${stock.quote.high.toFixed(2)}`,
-                  Low: `$${stock.quote.low.toFixed(2)}`,
-                  'Last Price': `$${stock.quote.lastPrice.toFixed(2)}`,
-                  'Previous Close': `$${stock.quote.previousClose.toFixed(2)}`,
-                  Change: `$${stock.quote.change.toFixed(2)}`,
-                  'Change Percent': `${stock.quote.changePercent.toFixed(2)}%`,
-                }).reduce((rows, entry, index) => {
-                  const rowIndex = Math.floor(index / 3);
-                  if (!rows[rowIndex]) rows[rowIndex] = [];
-                  rows[rowIndex].push(entry);
-                  return rows;
-                }, [] as [string, any][][]).map((row, rowIndex) => (
-                  <View key={rowIndex} style={styles.cardRowMulti}>
-                    {row.map(([label, value]) => (
-                      <View key={label} style={{ flex: 1 }}>
-                        <Text style={styles.cardLabel}>{label}</Text>
-                        <Text style={styles.cardValue}>{value}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ))}
-              </View>
-              {position && (
-                        <>
-                    <View style = {styles.positionCard}>
-                        <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>Current Position</Text>
+                {/* Earnings Calendar Section */}
+                <View style={styles.earningsContainer}>
+                  <TouchableOpacity
+                    style={styles.sectionHeader}
+                    onPress={() => setIsEarningsExpanded(!isEarningsExpanded)}
+                  >
+                    <Text style={styles.sectionHeaderText}>Earnings Calendar</Text>
+                    <Text style={styles.expandIcon}>{isEarningsExpanded ? '▼' : '▶'}</Text>
+                  </TouchableOpacity>
 
-                        {Object.entries({
-                            Quantity: position?.quantity, 
-                            'Position Ratio': `${position?.positionRatio}%` , 
-                            'Position Type': position?.type,
-                            'Average Price Per Share ': `$${position?.averagePurchasePrice}`, 
-                            Cost: `$${position?.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`, 
-                            'Market Value': `$${position?.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '0.00'}`,
-
-                        }).reduce((rows, entry, index) => {
-                            const rowIndex = Math.floor(index / 3);
-                            if (!rows[rowIndex]) rows[rowIndex] = [];
-                            rows[rowIndex].push(entry);
-                            return rows;
-                        }, [] as [string, any][][]).map((row, rowIndex) => (
-                            <View key={rowIndex} style={styles.cardRowMulti}>
-                            {row.map(([label, value]) => (
-                                <View key={label} style={{ flex: 1 }}>
-                                <Text style={styles.cardLabel}>{label}</Text>
-                                <Text style={styles.cardValue}>{value}</Text>
-                                </View>
-                            ))}
+                  {isEarningsExpanded && (
+                    <View style={styles.earningsContent}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {earnings.map((earning) => (
+                          <View key={`${earning.date}-${earning.quarter}`} style={styles.earningCard}>
+                            <Text style={styles.earningDate}>
+                              {format(parseISO(earning.date), 'MMM d, yyyy')}
+                            </Text>
+                            <Text style={styles.earningHour}>{getMarketHour(earning.hour)}</Text>
+                            <Text style={styles.earningQuarter}>Q{earning.quarter}</Text>
+                            <View style={styles.earningMetric}>
+                              <Text style={styles.metricLabel}>EPS Est.</Text>
+                              <Text style={styles.metricValue}>${earning.epsEstimate.toFixed(2)}</Text>
+                              {earning.epsActual && (
+                                <Text style={[
+                                  styles.metricActual,
+                                  { color: earning.epsActual >= earning.epsEstimate ? '#4CAF50' : '#FF5252' }
+                                ]}>
+                                  Actual: ${earning.epsActual.toFixed(2)}
+                                </Text>
+                              )}
                             </View>
-                        ))}  
+                            <View style={styles.earningMetric}>
+                              <Text style={styles.metricLabel}>Revenue Est.</Text>
+                              <Text style={styles.metricValue}>{formatCurrency(earning.revenueEstimate)}</Text>
+                              {earning.revenueActual && (
+                                <Text style={[
+                                  styles.metricActual,
+                                  { color: earning.revenueActual >= earning.revenueEstimate ? '#4CAF50' : '#FF5252' }
+                                ]}>
+                                  Actual: {formatCurrency(earning.revenueActual)}
+                                </Text>
+                              )}
+                            </View>
+                        </View>
+                    ))}  
+                      </ScrollView>
+                </View>
+                  )}
+                </View>
 
+                {/* Analyst Recommendations Section */}
+                <View style={styles.recommendationsContainer}>
+                  <TouchableOpacity
+                    style={styles.sectionHeader}
+                    onPress={() => setIsRecommendationsExpanded(!isRecommendationsExpanded)}
+                  >
+                    <Text style={styles.sectionHeaderText}>Analyst Recommendations</Text>
+                    <Text style={styles.expandIcon}>{isRecommendationsExpanded ? '▼' : '▶'}</Text>
+            </TouchableOpacity>
 
+                  {isRecommendationsExpanded && recommendations.length > 0 && (
+                    <View style={styles.recommendationsContent}>
+                      <View style={styles.latestRecommendation}>
+                        {(() => {
+                          const latest = recommendations[0];
+                          const total = latest.strongBuy + latest.buy + latest.hold + latest.sell + latest.strongSell;
+                          return (
+                            <>
+                              <Text style={styles.recommendationPeriod}>
+                                {format(parseISO(latest.period), 'MMMM yyyy')}
+                              </Text>
+                              <View style={styles.recommendationBar}>
+                                <View style={[styles.barSegment, { backgroundColor: '#00C853', width: `${(latest.strongBuy / total) * 100}%` }]}>
+                                  <Text style={styles.barText}>{latest.strongBuy}</Text>
+                                </View>
+                                <View style={[styles.barSegment, { backgroundColor: '#4CAF50', width: `${(latest.buy / total) * 100}%` }]}>
+                                  <Text style={styles.barText}>{latest.buy}</Text>
+                                </View>
+                                <View style={[styles.barSegment, { backgroundColor: '#FFD740', width: `${(latest.hold / total) * 100}%` }]}>
+                                  <Text style={styles.barText}>{latest.hold}</Text>
+                                </View>
+                                <View style={[styles.barSegment, { backgroundColor: '#FF5252', width: `${(latest.sell / total) * 100}%` }]}>
+                                  <Text style={styles.barText}>{latest.sell}</Text>
+                                </View>
+                                <View style={[styles.barSegment, { backgroundColor: '#D50000', width: `${(latest.strongSell / total) * 100}%` }]}>
+                                  <Text style={styles.barText}>{latest.strongSell}</Text>
+                                </View>
+                              </View>
+                              <View style={styles.recommendationLegend}>
+                                <View style={styles.legendItem}>
+                                  <View style={[styles.legendColor, { backgroundColor: '#00C853' }]} />
+                                  <Text style={styles.legendText}>Strong Buy</Text>
+                                </View>
+                                <View style={styles.legendItem}>
+                                  <View style={[styles.legendColor, { backgroundColor: '#4CAF50' }]} />
+                                  <Text style={styles.legendText}>Buy</Text>
+                                </View>
+                                <View style={styles.legendItem}>
+                                  <View style={[styles.legendColor, { backgroundColor: '#FFD740' }]} />
+                                  <Text style={styles.legendText}>Hold</Text>
+                                </View>
+                                <View style={styles.legendItem}>
+                                  <View style={[styles.legendColor, { backgroundColor: '#FF5252' }]} />
+                                  <Text style={styles.legendText}>Sell</Text>
+                                </View>
+                                <View style={styles.legendItem}>
+                                  <View style={[styles.legendColor, { backgroundColor: '#D50000' }]} />
+                                  <Text style={styles.legendText}>Strong Sell</Text>
+                                </View>
+                              </View>
+                            </>
+                          );
+                        })()}
+                      </View>
                     </View>
-                        </>
+                  )}
+                </View>
+                 {/* Additional Metrics Section */}
+                 {financials && (
+                  <View style={styles.metricsContainer}>
+              <TouchableOpacity
+                      style={styles.metricsHeader}
+                      onPress={() => setIsOtherMetricsExpanded(!isOtherMetricsExpanded)}
+                    >
+                      <Text style={styles.metricsHeaderText}>Other Financial Metrics</Text>
+                      <Text style={styles.expandIcon}>{isOtherMetricsExpanded ? '▼' : '▶'}</Text>
+              </TouchableOpacity>
+                    {isOtherMetricsExpanded && (
+                      <View>
+                        {/* Grouped metrics */}
+                        {Object.entries(extraMetricGroups).map(([category, metrics]) => {
+                          const groupMetrics = metrics.filter(m => (financials.metric as Record<string, any>)[m.key] !== undefined);
+                          if (groupMetrics.length === 0 && category !== 'Other') return null;
+                          return (
+                            <View key={category} style={{ marginBottom: 8 }}>
+                              {category !== 'Other' && <Text style={{ color: '#4CAF50', fontWeight: 'bold', marginBottom: 4 }}>{category}</Text>}
+                              <View style={styles.metricsGrid}>
+                                {groupMetrics.map(({ key, label }) => (
+                                  <View key={key} style={styles.metricItem}>
+                                    <Text style={styles.metricLabel}>{label}</Text>
+                                    <Text style={styles.metricValue}>{typeof (financials.metric as Record<string, any>)[key] === 'number' ? (financials.metric as Record<string, any>)[key].toLocaleString(undefined, {maximumFractionDigits: 4}) : (financials.metric as Record<string, any>)[key]}</Text>
+                                  </View>
+                                ))}
+            </View>
+          </View>
+                          );
+                        })}
+                        {/* Fallback for any other metrics not mapped above or in dropdown/main card */}
+                        <View style={{ marginBottom: 8 }}>
+                          <Text style={{ color: '#4CAF50', fontWeight: 'bold', marginBottom: 4 }}>Other</Text>
+                          <View style={styles.metricsGrid}>
+                            {Object.entries(financials.metric as Record<string, any>)
+                              .filter(([key]) => {
+                                const mainCardKeys: string[] = [
+                                  '52WeekHigh', '52WeekLow', '10DayAverageTradingVolume', 'peAnnual',
+                                  'eps', 'peTTM', 'pbAnnual', 'psAnnual', 'psTTM',
+                                ];
+                                const dropdownKeys: string[] = Object.values(metricCategories).flat().map(cat => cat.key as string);
+                                const groupedKeys: string[] = Object.values(extraMetricGroups).flat().map(m => m.key);
+                                return !mainCardKeys.includes(key as string) && !dropdownKeys.includes(key as string) && !groupedKeys.includes(key as string);
+                              })
+                              .map(([key, value]) => (
+                                <View key={key} style={styles.metricItem}>
+                                  <Text style={styles.metricLabel}>{prettifyMetricKey(key)}</Text>
+                                  <Text style={styles.metricValue}>{typeof value === 'number' ? value.toLocaleString(undefined, {maximumFractionDigits: 4}) : value}</Text>
+        </View>
+                              ))}
+                          </View>
+                        </View>
+                      </View>
                     )}
+                  </View>
+                )}
 
-            </>
+
+
+
+              </>
+            )}
+
+            {error && <Text style={{ color: 'red', marginTop: 10 }}>{error}</Text>}
+    </ScrollView>
+
+          {stock && (
+            <FloatingTradePanel
+              symbol={stock.symbol}
+              currentPrice={stock.currentPrice}
+              onTrade={handleTrade}
+              userId={userId}
+              position={position}
+              quote={stock.quote}
+              assetClass={stock.assetClass}
+            />
           )}
-
-          {error && <Text style={{ color: 'red', marginTop: 10 }}>{error}</Text>}
-        </ScrollView>
-
-        {stock && (
-          <FloatingTradePanel
-            symbol={stock.symbol}
-            currentPrice={stock.currentPrice}
-            onTrade={handleTrade}
-            userId={userId}
-          />
-        )}
-      </View>
-    </PaperProvider>
+        </View>
+      </PaperProvider>
   );
 };
 
@@ -897,7 +1057,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center'
   },
   inputField: {
-    borderRadius: 12,
+     borderRadius: 12,
     textAlign: 'center',
     flex: 1,
     borderWidth: 1,
