@@ -22,6 +22,7 @@ import { debounce } from 'lodash';
 import { Portal, Provider as PaperProvider } from 'react-native-paper';
 import FloatingTradePanel from '../../components/FloatingTradePanel';
 import LivePriceBanner from '../../components/LivePriceBanner';
+import { useSymbolSearch } from '../../hooks/useSymbolSearch';
 
 interface FinnhubProfile {
   name: string;
@@ -334,7 +335,6 @@ const TradeScreen = () => {
   const [isEarningsExpanded, setIsEarningsExpanded] = useState(false);
   const [isRecommendationsExpanded, setIsRecommendationsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<StockSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [inputLayout, setInputLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const searchContainerRef = useRef<View>(null);
@@ -344,29 +344,12 @@ const TradeScreen = () => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [bannerWidth, setBannerWidth] = useState(360);
   const bannerRef = useRef<View>(null);
-
-  const debouncedSearch = React.useCallback(
-    debounce(async (query: string) => {
-      if (query.length < 1) {
-        setSuggestions([]);
-        return;
-      }
-      try {
-        const response = await axiosInstance.get<StockSuggestion[]>('/alpaca/search', {
-          params: { q: query }
-        });
-        setSuggestions(response.data);
-      } catch (err) {
-        console.error('Error fetching suggestions:', err);
-      }
-    }, 300),
-    []
-  );
+  const { suggestions, search } = useSymbolSearch();
 
   const handleSearchChange = (text: string) => {
     setSearchQuery(text);
     setSearchedSymbol(text);
-    debouncedSearch(text);
+    search(text);
     setShowSuggestions(true);
   };
 

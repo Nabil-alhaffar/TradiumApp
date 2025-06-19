@@ -7,6 +7,10 @@ import * as SecureStore from 'expo-secure-store';
 import * as SignalRService from '../../app/services/SignalRService';
 import axiosInstance from '../services/AxiosInstance';
 import StockChart from '../../components/StockChart/StockChart'
+import { debounce } from 'lodash';
+import { Portal, Provider as PaperProvider } from 'react-native-paper';
+import { useSymbolSearch } from '../../hooks/useSymbolSearch';
+import { MaterialIcons } from '@expo/vector-icons';
 
 interface Watchlist {
   watchlistId: string;
@@ -51,6 +55,20 @@ interface ChartData {
   [symbol: string]: { timestamp: number; value: number }[];
 }
 
+interface StockSuggestion {
+  symbol: string;
+  name: string;
+  assetClass: string;
+  exchange: string;
+}
+
+interface AssetInfo {
+  symbol: string;
+  name: string;
+  class: string;
+  exchange: string;
+}
+
 let token: string | null = null;
 let userId: string | null = null;
 
@@ -67,7 +85,27 @@ const WatchlistScreen = () => {
   const [newWatchlistName, setNewWatchlistName] = useState('');
   const [newSymbol, setNewSymbol] = useState('');
   const [showAddWatchlist, setShowAddWatchlist] = useState(false);
-  const [showAddSymbol, setShowAddSymbol] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<StockSuggestion | null>(null);
+  const searchInputRef = React.useRef<any>(null);
+  const [inputWindowLayout, setInputWindowLayout] = useState<{x: number; y: number; width: number; height: number} | null>(null);
+  const { suggestions: searchSuggestions, search } = useSymbolSearch();
+  const [assetInfoMap, setAssetInfoMap] = useState<Record<string, AssetInfo>>({});
+
+  // Reset inputWindowLayout when switching watchlists
+  React.useEffect(() => {
+    setInputWindowLayout(null);
+  }, [currentIndex]);
+
+  // Helper to measure input position in window
+  const measureInput = () => {
+    const input = searchInputRef.current;
+    if (input && typeof input.measureInWindow === 'function') {
+      input.measureInWindow((x: number, y: number, width: number, height: number) => {
+        setInputWindowLayout({ x, y, width, height });
+      });
+    }
+  };
 
   const handleDeleteWatchlist = async () => {
 
@@ -260,7 +298,6 @@ const WatchlistScreen = () => {
   
       await fetchWatchlistsAndSnapshots();
       setNewSymbol('');
-      setShowAddSymbol(false);
     } catch (error) {
       Alert.alert('Error', 'Failed to add symbols to watchlist');
       console.error('Error adding symbols:', error);
@@ -298,6 +335,54 @@ const WatchlistScreen = () => {
       console.error('Error removing symbols:', error);
     }
   };
+
+  const handleSearchChange = (text: string) => {
+    setNewSymbol(text);
+    setSelectedSuggestion(null);
+    search(text);
+    setShowSuggestions(true);
+  };
+
+  const handleSuggestionPress = async (suggestion: StockSuggestion) => {
+    setNewSymbol('');
+    setSelectedSuggestion(suggestion);
+    setShowSuggestions(false);
+    // Immediately add the symbol to the watchlist
+    await handleAddSymbols([suggestion.symbol]);
+  };
+
+  const currentWatchlist = (watchlists ?? [])[currentIndex];
+
+  // Fetch asset info for all symbols in the current watchlist
+  useEffect(() => {
+    const fetchAssetInfo = async () => {
+      if (!currentWatchlist?.symbols) return;
+      const missingSymbols = currentWatchlist.symbols.filter(
+        (symbol) => !assetInfoMap[symbol]
+      );
+      if (missingSymbols.length === 0) return;
+      const newInfo: Record<string, AssetInfo> = {};
+      await Promise.all(
+        missingSymbols.map(async (symbol) => {
+          try {
+            const resp = await axiosInstance.get(`/alpaca/asset/${symbol}`);
+            newInfo[symbol] = {
+              symbol,
+              name: resp.data.name || '',
+              class: resp.data.asset_class || '',
+              exchange: resp.data.exchange || '',
+            };
+          } catch (e) {
+            // fallback: just show symbol
+            newInfo[symbol] = { symbol, name: '', class: '', exchange: '' };
+          }
+        })
+      );
+      setAssetInfoMap((prev) => ({ ...prev, ...newInfo }));
+    };
+    fetchAssetInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWatchlist]);
 
   if (loading) {
     return (
@@ -357,8 +442,6 @@ const WatchlistScreen = () => {
     );
   }
 
-  const currentWatchlist = watchlists[currentIndex];
-
   return (
     <View style={styles.container}>
       <View style={styles.navContainer}>
@@ -371,38 +454,97 @@ const WatchlistScreen = () => {
         </TouchableOpacity>
         <Text style={styles.title}>{currentWatchlist.watchlistName}</Text>
         <TouchableOpacity
+          style={styles.addIconButton}
+          onPress={() => setShowAddWatchlist(true)}
+        >
+          <MaterialIcons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity
           onPress={() => setCurrentIndex(prev => Math.min(prev + 1, watchlists.length - 1))}
           disabled={currentIndex === watchlists.length - 1}
           style={[styles.navButton, currentIndex === watchlists.length - 1 && styles.disabledButton]}
         >
           <Text style={styles.navText}>▶</Text>
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.actionsContainer}>
         <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowAddWatchlist(true)}
-        >
-          <Text style={styles.addButtonText}>+ Watchlist</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowAddSymbol(true)}
-        >
-          <Text style={styles.addButtonText}>+ Symbol</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.deleteButton}
+          style={styles.deleteIconButton}
           onPress={() => {
-           confirmDelete();
+            confirmDelete();
           }}
         >
-          <Text style={styles.deleteButtonText}>Delete</Text>
+          <MaterialIcons name="delete" size={26} color="#fff" />
         </TouchableOpacity>
       </View>
 
-      {(showAddWatchlist || showAddSymbol) && (
+      {/* Always-visible search bar above the watchlists */}
+      <View style={{ position: 'relative', marginBottom: 16 }}>
+        <TextInput
+          ref={searchInputRef}
+          style={styles.input}
+          placeholder="Search by symbol or company name"
+          placeholderTextColor="#999"
+          value={newSymbol}
+          onChangeText={handleSearchChange}
+          autoCapitalize="characters"
+          onFocus={() => {
+            setShowSuggestions(true);
+            measureInput();
+          }}
+          onSubmitEditing={() => setShowSuggestions(false)}
+          onLayout={measureInput}
+        />
+        <Portal>
+          {showSuggestions &&
+            searchSuggestions.length > 0 &&
+            inputWindowLayout &&
+            typeof inputWindowLayout.x === 'number' &&
+            typeof inputWindowLayout.y === 'number' &&
+            typeof inputWindowLayout.width === 'number' &&
+            typeof inputWindowLayout.height === 'number' &&
+            isFinite(inputWindowLayout.x) &&
+            isFinite(inputWindowLayout.y) &&
+            isFinite(inputWindowLayout.width) &&
+            isFinite(inputWindowLayout.height) && (
+              <View style={{
+                position: 'absolute',
+                top: inputWindowLayout.y + inputWindowLayout.height + 4,
+                left: inputWindowLayout.x,
+                width: inputWindowLayout.width,
+                backgroundColor: 'rgba(30,30,30,0.92)',
+                borderRadius: 8,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.25,
+                shadowRadius: 3.84,
+                elevation: 5,
+                zIndex: 3000,
+                maxHeight: 300,
+                alignSelf: 'center',
+              }}>
+                <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
+                  {searchSuggestions.map((suggestion) => (
+                    <TouchableOpacity
+                      key={suggestion.symbol}
+                      style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#333' }}
+                      onPress={() => handleSuggestionPress(suggestion)}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={{ color: '#FFD700', fontSize: 16, fontWeight: 'bold' }}>{suggestion.symbol}</Text>
+                        <Text style={{ color: '#AAA', fontSize: 12, fontStyle: 'italic', marginLeft: 6 }}>
+                          ({suggestion.assetClass.replace(/-/g, ' ').toUpperCase()})
+                        </Text>
+                        <Text style={{ color: '#4CAF50', fontSize: 12, marginLeft: 6 }}>{suggestion.exchange}</Text>
+                      </View>
+                      <Text style={{ color: '#AAA', fontSize: 13, marginTop: 2 }}>{suggestion.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+        </Portal>
+      </View>
+
+      {(showAddWatchlist) && (
         <View style={styles.addForm}>
           {showAddWatchlist && (
             <>
@@ -429,33 +571,6 @@ const WatchlistScreen = () => {
               </View>
             </>
           )}
-
-          {showAddSymbol && (
-            <>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter symbol (e.g., AAPL)"
-                placeholderTextColor="#999"
-                value={newSymbol}
-                onChangeText={setNewSymbol}
-                autoCapitalize="characters"
-              />
-              <View style={styles.buttonRow}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.cancelButton]}
-                  onPress={() => setShowAddSymbol(false)}
-                >
-                  <Text style={styles.actionButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.submitButton]}
-                  onPress={() => handleAddSymbols([newSymbol])} 
-                >
-                  <Text style={styles.actionButtonText}>Add</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
         </View>
       )}
 
@@ -471,16 +586,11 @@ const WatchlistScreen = () => {
             const currentClose = currentCloses[symbol];
             const realTimePrice = quote ? (quote.AskPrice + quote.BidPrice) / 2 : null;
             const fallbackPrice = currentClose  ?? null;
-
-            
-            // const fallbackPrice = prevClose ?? null;
             const price = realTimePrice ?? fallbackPrice;
-
             let changePercent = null;
             if (price != null && prevClose != null) {
               changePercent = ((price - prevClose) / prevClose) * 100;
             }
-
             const displayPrice = price?.toFixed(2) ?? '-';
             const displayChange = changePercent != null ? `${changePercent.toFixed(2)}%` : '-';
             const color =
@@ -489,17 +599,32 @@ const WatchlistScreen = () => {
                 : changePercent > 0
                 ? '#4CAF50'
                 : '#F44336';
-
+            const asset = assetInfoMap[symbol];
             return (
               <View key={index} style={styles.symbolItem}>
                 <View style={styles.symbolHeader}>
-                  <Text style={styles.symbolText}>{symbol}</Text>
-                  {/* <View style={styles.chartContainer}> */}
-                  < StockChart  symbol= {symbol} timeframe='1W' chartType='line' height={110} limit={25} zoomBtnsEnabled= {false} pathColor={color}/>
-                  {/* </View> */}
-          
-                  <Text style={[styles.price , { color }]}>{displayPrice} ({displayChange})</Text>
-
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Text style={styles.symbolText}>{symbol}</Text>
+                      {asset?.class ? (
+                        <Text style={{ fontStyle: 'italic', color: '#AAA', fontSize: 13, marginLeft: 8 }}>
+                          {asset.class.replace(/-/g, ' ').toUpperCase()}
+                        </Text>
+                      ) : null}
+                      {asset?.exchange ? (
+                        <Text style={{ color: '#4CAF50', fontSize: 13, marginLeft: 8 }}>
+                          {asset.exchange}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {asset?.name ? (
+                      <Text style={{ color: '#AAA', fontSize: 13, marginLeft: 2, marginTop: 2 }} numberOfLines={1}>
+                        {asset.name}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <StockChart  symbol={symbol} timeframe='1W' chartType='line' height={110} limit={25} zoomBtnsEnabled={false} pathColor={color} />
+                  <Text style={[styles.price, { color }]}>{displayPrice} ({displayChange})</Text>
                   <TouchableOpacity
                     style={styles.removeButton}
                     onPress={() => handleRemoveSymbols([symbol])}
@@ -574,6 +699,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+    // borderColor: '#2E8B57',
+    borderWidth: 2,
   },
   symbolHeader: {
     flexDirection: 'row',
@@ -607,6 +734,8 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 8,
     marginBottom: 15,
+    borderColor: '#2E8B57',
+    borderWidth: 2,
   },
   input: {
     backgroundColor: '#2a2a2a',
@@ -614,6 +743,8 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
     marginBottom: 10,
+    borderColor: '#2E8B57',
+    borderWidth: 2,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -686,6 +817,39 @@ const styles = StyleSheet.create({
   //   flex:1,
   //   width:200
   // }
+  addIconButton: {
+    backgroundColor: '#1e90ff',
+    borderRadius: 50,
+    padding: 6,
+    marginLeft: 8,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  deleteIconButton: {
+    backgroundColor: '#ff4d4d',
+    borderRadius: 50,
+    padding: 6,
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
+  },
 });
 
-export default WatchlistScreen;
+export default function WrappedWatchlistScreen() {
+  return (
+    <PaperProvider>
+      <WatchlistScreen />
+    </PaperProvider>
+  );
+}
