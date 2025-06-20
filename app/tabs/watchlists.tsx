@@ -366,13 +366,23 @@ const WatchlistScreen = () => {
         missingSymbols.map(async (symbol) => {
           try {
             const resp = await axiosInstance.get(`/alpaca/asset/${symbol}`);
+            console.log(`Asset API response for ${symbol}:`, resp.data);
+            console.log(`Response structure for ${symbol}:`, {
+              hasData: !!resp.data,
+              dataKeys: resp.data ? Object.keys(resp.data) : [],
+              classValue: resp.data?.class,
+              nameValue: resp.data?.name,
+              exchangeValue: resp.data?.exchange
+            });
             newInfo[symbol] = {
               symbol,
-              name: resp.data.name || '',
-              class: resp.data.asset_class || '',
+              name: resp.data.name || resp.data.symbol || '',
+              class: resp.data.class || '',
               exchange: resp.data.exchange || '',
             };
+            console.log(`Stored asset info for ${symbol}:`, newInfo[symbol]);
           } catch (e) {
+            console.log(`Error fetching asset info for ${symbol}:`, e);
             // fallback: just show symbol
             newInfo[symbol] = { symbol, name: '', class: '', exchange: '' };
           }
@@ -600,6 +610,7 @@ const WatchlistScreen = () => {
                 ? '#4CAF50'
                 : '#F44336';
             const asset = assetInfoMap[symbol];
+            console.log(`Asset info for ${symbol} in render:`, asset);
             return (
               <View key={index} style={styles.symbolItem}>
                 <View style={styles.symbolHeader}>
