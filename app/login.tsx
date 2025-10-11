@@ -93,6 +93,15 @@ const LoginScreen = () => {
       <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
       </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={styles.signupLink}
+        onPress={() => router.push('/signup')}
+      >
+        <Text style={styles.signupLinkText}>
+          Don't have an account? <Text style={styles.signupLinkBold}>Sign Up</Text>
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -146,5 +155,17 @@ const styles = StyleSheet.create({
     color: '#FF5A5F',
     marginBottom: 10,
     fontSize: 14,
+  },
+  signupLink: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  signupLinkText: {
+    color: '#888',
+    fontSize: 14,
+  },
+  signupLinkBold: {
+    color: '#2E8B57',
+    fontWeight: '600',
   },
 });

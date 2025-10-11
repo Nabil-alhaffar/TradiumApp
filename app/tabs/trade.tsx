@@ -23,6 +23,7 @@ import { Portal, Provider as PaperProvider } from 'react-native-paper';
 import FloatingTradePanel from '../../components/FloatingTradePanel';
 import LivePriceBanner from '../../components/LivePriceBanner';
 import { useSymbolSearch } from '../../hooks/useSymbolSearch';
+import { Picker } from '@react-native-picker/picker';
 
 interface FinnhubProfile {
   name: string;
@@ -478,7 +479,7 @@ const TradeScreen = () => {
     }
   };
 
-  const handleTrade = async (type: string, quantity: string) => {
+  const handleTrade = async (type: string, quantity: string, tradeIntent: string) => {
     if (!token || !stock) return;
 
     try {
@@ -486,6 +487,7 @@ const TradeScreen = () => {
           symbol: stock.symbol,
           quantity: parseInt(quantity),
         side: type,
+        intent: tradeIntent,
       });
 
       Toast.show({
@@ -998,9 +1000,6 @@ const TradeScreen = () => {
                     )}
                   </View>
                 )}
-
-
-
 
               </>
             )}

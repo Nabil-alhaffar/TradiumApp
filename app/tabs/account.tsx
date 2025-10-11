@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Button, StyleSheet } from 'react-native';
+import { View, Text, Button, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import AsyncStorage  from '@react-native-async-storage/async-storage';
-import axios, { Axios } from 'axios';
+import axios from 'axios';
 import { Alert, TextInput, Modal } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { disconnect }  from '../services/SignalRService';
@@ -40,12 +41,40 @@ const AccountScreen = () => {
             sessionId = await SecureStore.getItemAsync('sessionId');
 
           }
-          const response = await axiosInstance.get(`/user/${userId}`, );
-            console.log(response.data)
+          try{
+            const response = await axiosInstance.get(`/user/profile`);
+            console.log('profile response:', response.data);
 
-          if (token && userId && sessionId) {
-            setUserData({ userId, token, email: response.data.email,sessionId: sessionId, username: response.data.userName,
-                 firstName: response.data.firstName, lastName: response.data.lastName });
+            if (token && userId && sessionId) {
+              setUserData({ userId, token, email: response.data.email,sessionId: sessionId, username: response.data.userName,
+                   firstName: response.data.firstName, lastName: response.data.lastName });
+            }
+          } catch (err: any) {
+            const status = err?.response?.status;
+            const body = err?.response?.data;
+            console.log('Profile fetch error:', body || err?.message);
+
+            // Fallback: if backend routes profile to {userId} and returns validation error, try old endpoint
+            const looksLikeUserIdValidation = status === 400 && body && (body.errors?.userId || body.title?.includes("userId"));
+            if (looksLikeUserIdValidation && userId) {
+              try {
+                const legacy = await axiosInstance.get(`/user/${userId}`);
+                console.log('legacy user response:', legacy.data);
+                if (token && sessionId) {
+                  setUserData({ userId, token, email: legacy.data.email, sessionId, username: legacy.data.userName,
+                    firstName: legacy.data.firstName, lastName: legacy.data.lastName });
+                }
+                return; // success via fallback
+              } catch (legacyErr: any) {
+                console.log('Legacy fetch error:', legacyErr?.response?.data || legacyErr?.message);
+              }
+            }
+
+            Toast.show({
+              type: 'error',
+              text1: 'Failed to load profile',
+              text2: typeof body === 'string' ? body : JSON.stringify(body || err?.message || 'Unknown error'),
+            });
           }
         };
       fetchAccountData();
@@ -144,6 +173,10 @@ const AccountScreen = () => {
         <Text style={styles.token}>{userData?.token}</Text>
       </View>
       <View style = {styles.buttonContainer}>
+      <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/kyc')}>
+        <MaterialIcons name="verified-user" size={20} color="#2E8B57" />
+        <Text style={styles.actionButtonText}>Complete KYC</Text>
+      </TouchableOpacity>
       <Button color={"#121212"}  title="Logout" onPress={handleLogout} />
       <Button color={"121212"}  title="Reset Password" onPress={() => setIsModalVisible(true)} />
 
@@ -219,9 +252,27 @@ const styles = StyleSheet.create({
       marginTop: 4,
     },
     buttonContainer:{
-        flexDirection: 'row',
+        flexDirection: 'column',
         padding:10,
-        justifyContent : 'space-evenly'
+        gap: 10,
+    },
+    actionButton: {
+        backgroundColor: '#1F1F1F',
+        paddingVertical: 15,
+        paddingHorizontal: 20,
+        borderRadius: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderColor: '#2E8B57',
+        borderWidth: 1,
+        marginBottom: 10,
+    },
+    actionButtonText: {
+        color: '#2E8B57',
+        fontSize: 16,
+        fontWeight: '600',
+        marginLeft: 8,
     },
     modalContainer: {
         flex: 1,

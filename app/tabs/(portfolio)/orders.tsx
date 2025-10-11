@@ -13,10 +13,20 @@ interface order{
   quantity: number,
   price: number,
   side: string,
+  intent?: string,
   timestamp: Date
 }
 let token: string | null = null;
 let userId : string| null = null; 
+
+// Map intent values to descriptions
+const intentDescriptions: { [key: string]: string } = {
+  BuyToOpen: 'Open Long',
+  BuyToClose: 'Close Short',
+  SellToOpen: 'Open Short',
+  SellToClose: 'Close Long',
+};
+
 export default function OrdersScreen() {
   const [orders, setOrders]= useState < order[]> ([]);
   const [loading, setLoading] = useState(true);
@@ -83,24 +93,36 @@ export default function OrdersScreen() {
               styles.card,
               {
                 borderLeftColor:
-                  item.side.toLowerCase() === 'buy' ? '#4CAF50' : '#F44336',
+                  (typeof item.side === 'string' ? item.side.toLowerCase() : String(item.side).toLowerCase()) === 'buy' ? '#4CAF50' : '#F44336',
               },
             ]}
           >
             <View style={styles.row}>
               <MaterialIcons
                 name={
-                  item.side.toLowerCase() === 'buy'
+                  (typeof item.side === 'string' ? item.side.toLowerCase() : String(item.side).toLowerCase()) === 'buy'
                     ? 'trending-up'
                     : 'trending-down'
                 }
                 size={24}
-                color={item.side.toLowerCase() === 'buy' ? '#4CAF50' : '#F44336'}
+                color={(typeof item.side === 'string' ? item.side.toLowerCase() : String(item.side).toLowerCase()) === 'buy' ? '#4CAF50' : '#F44336'}
               />
               <Text style={styles.symbol}>{item.symbol.toUpperCase()}</Text>
-              <Text style={styles.type}>
-                {item.side.toUpperCase()} x {item.quantity}
-              </Text>
+              <View style={{ flexDirection: 'column' }}>
+                <Text style={styles.type}>
+                  {(typeof item.side === 'string' ? item.side.toUpperCase() : String(item.side).toUpperCase())} x {item.quantity}
+                </Text>
+                {item.intent && (
+                  <Text style={styles.intentLabel}>
+                    Intent: <Text style={styles.intentValue}>
+                      {item.intent.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim()}
+                    </Text>
+                    {intentDescriptions[item.intent] && (
+                      <Text style={styles.intentDesc}> ({intentDescriptions[item.intent]})</Text>
+                    )}
+                  </Text>
+                )}
+              </View>
             </View>
             <Text style={styles.price}>${item.price.toFixed(2)}</Text>
             <Text style={styles.date}>
@@ -183,5 +205,21 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: '#888',
+  },
+  intentLabel: {
+    fontSize: 12,
+    color: '#FFD700',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  intentValue: {
+    fontWeight: 'bold',
+    color: '#FFD700',
+  },
+  intentDesc: {
+    fontSize: 12,
+    color: '#FFD700',
+    fontStyle: 'normal',
+    fontWeight: 'normal',
   },
 });

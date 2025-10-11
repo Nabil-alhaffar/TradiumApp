@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { connectToMarketData, joinSymbolGroup, leaveSymbolGroup, registerQuoteListener, removeQuoteListener } from '../app/services/SignalRService';
 import axiosInstance from '../app/services/AxiosInstance';
+import { Picker } from '@react-native-picker/picker';
 
 interface Position {
   symbol: string;
@@ -35,7 +36,7 @@ interface QuoteData {
 interface FloatingTradePanelProps {
   symbol: string;
   currentPrice: number;
-  onTrade: (type: string, quantity: string) => void;
+  onTrade: (type: string, quantity: string, tradeIntent: string) => void;
   userId: string | null;
   position?: Position | null;
   quote?: QuoteData | null;
@@ -69,8 +70,17 @@ const FloatingTradePanel: React.FC<FloatingTradePanelProps> = ({
   const [previousPrice, setPreviousPrice] = useState<number>(currentPrice);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const animatedWidth = React.useRef(new Animated.Value(320)).current;
+  const [tradeIntent, setTradeIntent] = useState('BuyToOpen');
 
-  const orderTypes = ['Buy', 'Sell', 'Short', 'CloseShort'];
+  const orderTypes = ['Buy', 'Sell'];
+
+  // Map intent to allowed side
+  const allowedSideForIntent: { [intent: string]: 'Buy' | 'Sell' } = {
+    BuyToOpen: 'Buy',
+    BuyToClose: 'Buy',
+    SellToOpen: 'Sell',
+    SellToClose: 'Sell',
+  };
 
   const parseQuote = (raw: QuoteUpdate) => ({
     Symbol: raw.S,
@@ -229,16 +239,43 @@ const FloatingTradePanel: React.FC<FloatingTradePanelProps> = ({
               placeholderTextColor="#666"
             />
           </View>
+          {/* Trade Intent Dropdown */}
+          <View style={{ marginVertical: 12, backgroundColor: '#23272F', borderRadius: 8, borderWidth: 2, borderColor: '#2E8B57', padding: 8 }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold', marginBottom: 4 }}>Trade Intent</Text>
+            <Picker
+              selectedValue={tradeIntent}
+              onValueChange={setTradeIntent}
+              style={{ color: '#fff', backgroundColor: 'transparent' }}
+              dropdownIconColor="#2E8B57"
+            >
+              <Picker.Item label="Buy to Open (Long)" value="BuyToOpen" />
+              <Picker.Item label="Buy to Close (Cover Short)" value="BuyToClose" />
+              <Picker.Item label="Sell to Open (Short)" value="SellToOpen" />
+              <Picker.Item label="Sell to Close (Sell Long)" value="SellToClose" />
+            </Picker>
+          </View>
           <View style={styles.buttonContainer}>
-            {orderTypes.map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={[styles.tradeButton, { backgroundColor: type.includes('Buy') ? '#4CAF50' : '#FF5252' }]}
-                onPress={() => onTrade(type, quantity)}
-              >
-                <Text style={styles.buttonText}>{type}</Text>
-              </TouchableOpacity>
-            ))}
+            {orderTypes.map((type) => {
+              const isAllowed = allowedSideForIntent[tradeIntent] === type;
+              return (
+                <TouchableOpacity
+                  key={type}
+                  style={[
+                    styles.tradeButton,
+                    {
+                      backgroundColor: isAllowed
+                        ? (type === 'Buy' ? '#4CAF50' : '#FF5252')
+                        : '#444',
+                      opacity: isAllowed ? 1 : 0.5,
+                    },
+                  ]}
+                  onPress={() => isAllowed && onTrade(type, quantity, tradeIntent)}
+                  disabled={!isAllowed}
+                >
+                  <Text style={styles.buttonText}>{type}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </>
       )}

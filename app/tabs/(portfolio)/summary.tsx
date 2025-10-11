@@ -27,13 +27,21 @@ interface Portfolio {
 }
 
 interface PortfolioSummary {
-  totalMarketValue: number;
-  totalCost: number;
-  totalNetValue: number;
-  openPnL: number;
-  percentagePnL: number;
-  dayPnL: number;
-  dayPercentagePnL: number;
+  marketValue: number;
+  cost: number;
+  cashBalance: number;
+  netAccountValue: number;
+  openPNL: number;
+  openReturnPercentage: number;
+  dayPNL: number;
+  dayReturnPercentage: number;
+  marginUsed: number;
+  marginLimit: number;
+  buyingPower: number;
+  equity: number;
+  isInMarginCall: boolean;
+  maintenanceMarginRequirement: number;
+  initialMarginRequirement: number;
 }
 
 interface PositionSummary {
@@ -80,7 +88,27 @@ const PortfolioScreen = () => {
       ]);
 
       setPortfolio(portfolioRes.data.portfolio);
-      setPortfolioSummary(summaryRes.data);
+
+      const apiSummary = summaryRes.data;
+      const mappedSummary: PortfolioSummary = {
+        marketValue: apiSummary.totalMarketValue ?? 0,
+        cost: apiSummary.totalCost ?? 0,
+        cashBalance: portfolioRes?.data?.portfolio?.availableFunds ?? 0,
+        netAccountValue: apiSummary.totalNetValue ?? 0,
+        openPNL: apiSummary.openPnL ?? 0,
+        openReturnPercentage: apiSummary.percentagePnL ?? 0,
+        dayPNL: apiSummary.dayPnL ?? 0,
+        dayReturnPercentage: apiSummary.dayPercentagePnL ?? 0,
+        marginUsed: apiSummary.marginUsed ?? 0,
+        marginLimit: apiSummary.marginLimit ?? 0,
+        buyingPower: apiSummary.buyingPower ?? 0,
+        equity: apiSummary.equity ?? 0,
+        isInMarginCall: apiSummary.isInMarginCall ?? false,
+        maintenanceMarginRequirement: apiSummary.maintenanceMarginRequirement ?? 0,
+        initialMarginRequirement: apiSummary.initialMarginRequirement ?? 0,
+      };
+
+      setPortfolioSummary(mappedSummary);
 
       const summaries: { [symbol: string]: PositionSummary } = {};
       for (const symbol of Object.keys(portfolioRes.data.portfolio.positions)) {
@@ -140,49 +168,53 @@ const PortfolioScreen = () => {
           <Text style={styles.symbol}>Summary</Text>
         </View>
         <Text style={styles.label}>Available Funds: ${portfolio?.availableFunds.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-        <Text style={styles.label}>Net Value: ${portfolioSummary?.totalNetValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-        <Text style={styles.label}>Market Value: ${portfolioSummary?.totalMarketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-        <Text style={styles.label}>Cost: ${portfolioSummary?.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-        <Text style={[styles.label, { color: portfolioSummary?.dayPnL >= 0 ? '#00FF00' : '#FF5252' }]}>
-          Today's +/-: ${portfolioSummary?.dayPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioSummary?.dayPercentagePnL.toFixed(2)}%)
+        <Text style={styles.label}>Net Account Value: ${portfolioSummary?.netAccountValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Market Value: ${portfolioSummary?.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Cost: ${portfolioSummary?.cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Buying Power: ${portfolioSummary?.buyingPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Equity: ${portfolioSummary?.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Margin Used / Limit: ${portfolioSummary?.marginUsed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${portfolioSummary?.marginLimit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        <Text style={styles.label}>Maint. Req / Initial Req: {(portfolioSummary?.maintenanceMarginRequirement ?? 0) * 100}% / {(portfolioSummary?.initialMarginRequirement ?? 0) * 100}%</Text>
+        <Text style={[styles.label, { color: (portfolioSummary?.dayPNL ?? 0) >= 0 ? '#00FF00' : '#FF5252' }]}>
+          Today's +/-: ${portfolioSummary?.dayPNL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioSummary?.dayReturnPercentage.toFixed(2)}%)
         </Text>
-        <Text style={[styles.label, { color: portfolioSummary?.openPnL >= 0 ? '#00FF00' : '#FF5252' }]}>
-          Open +/-: ${portfolioSummary?.openPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioSummary?.percentagePnL.toFixed(2)}%)
+        <Text style={[styles.label, { color: (portfolioSummary?.openPNL ?? 0) >= 0 ? '#00FF00' : '#FF5252' }]}>
+          Open +/-: ${portfolioSummary?.openPNL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({portfolioSummary?.openReturnPercentage.toFixed(2)}%)
         </Text>
       </View>
+
+      {portfolioSummary?.isInMarginCall && (
+        <View style={[styles.card, { borderLeftColor: '#F44336' }]}>
+          <View style={styles.row}>
+            <MaterialIcons name="warning" size={24} color="#F44336" />
+            <Text style={styles.symbol}>Margin Call</Text>
+          </View>
+          <Text style={[styles.label, { color: '#FF5252' }]}>Your equity has fallen below the maintenance requirement. Liquidate positions or add funds.</Text>
+        </View>
+      )}
 
       <Text style={styles.header}>Holdings</Text>
 
       {Object.values(portfolio?.positions || {}).map((position) => {
         const summary = positionSummaries[position.symbol];
+        const openPnLValue = summary?.openPNL ?? 0;
+        const openPnLPct = summary?.openPNLPercentage ?? 0;
+        const trendColor = openPnLValue > 0 ? '#4CAF50' : openPnLValue < 0 ? '#F44336' : '#9E9E9E';
+        const trendIcon = openPnLValue > 0 ? 'trending-up' : openPnLValue < 0 ? 'trending-down' : 'trending-neutral';
         return (
           <View
             key={position.positionId}
             style={[
               styles.card,
-              { borderLeftColor: summary?.openPNL > 0
-                               ? '#4CAF50' 
-                               : summary.openPNL< 0 
-                               ? '#F44336'
-                               : '#9E9E9E'},
+              { borderLeftColor: trendColor },
             ]}
           >
             <View style={styles.row}>
               <MaterialIcons
-                  name={
-                    summary.openPNL > 0
-                      ? 'trending-up'
-                      : summary.openPNL < 0
-                      ? 'trending-down'
-                      : 'trending-neutral'
-                  }                size={24}
-                  color={
-                    summary?.openPNL > 0
-                      ? '#4CAF50'    // green
-                      : summary?.openPNL < 0
-                      ? '#F44336'    // red
-                      : '#9E9E9E'    // gray for neutral
-                  }              />
+                name={trendIcon}
+                size={24}
+                color={trendColor}
+              />
               <Text style={styles.symbol}>{position.symbol.toUpperCase()}</Text>
               <Text style={styles.type}>
                 {position.type.toUpperCase()} x {position.quantity}
@@ -191,12 +223,8 @@ const PortfolioScreen = () => {
             <Text style={styles.price}>Avg Price: ${position.averagePurchasePrice.toFixed(2)}</Text>
             <Text style={styles.price}>Current: ${position.currentPrice.toFixed(2)}</Text>
             <Text style={styles.price}>Market Value: ${position.marketValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
-            <Text style={[styles.price, { color: summary?.openPNL > 0 
-                                        ? '#00FF00' 
-                                        : summary.openPNL < 0 
-                                        ? '#FF5252' 
-                                        : '#9E9E9E'}]}>
-              Open PnL: ${summary?.openPNL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({summary?.openPNLPercentage.toFixed(2)}%)
+            <Text style={[styles.price, { color: openPnLValue > 0 ? '#00FF00' : openPnLValue < 0 ? '#FF5252' : '#9E9E9E' }]}>
+              Open PnL: ${openPnLValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({openPnLPct.toFixed(2)}%)
             </Text>
           </View>
         );
