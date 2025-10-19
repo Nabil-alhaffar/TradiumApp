@@ -46,13 +46,45 @@ const LoginScreen = () => {
 
         }
 
-        Toast.show({
-          type: 'success',
-          text1: 'Login successful!',
-          text2: `Welcome back, ${response.data.firstName}!`,
-        });
+        // Check KYC status after successful login
+        try {
+          const profileResponse = await axiosInstance.get('/user/profile');
+          const kycStatus = profileResponse.data.kycStatus;
+          
+          Toast.show({
+            type: 'success',
+            text1: 'Login successful!',
+            text2: `Welcome back, ${response.data.firstName}!`,
+          });
 
-        router.replace('/tabs/(portfolio)/summary');
+          // Check if KYC is completed
+          if (kycStatus !== 'Verified') {
+            // Show KYC prompt
+            Toast.show({
+              type: 'info',
+              text1: 'KYC Required',
+              text2: kycStatus === 'PendingReview' 
+                ? 'Your KYC is under review. You can view your account but trading is restricted.'
+                : 'Please complete KYC verification to start trading.',
+              visibilityTime: 5000,
+            });
+            
+            // Navigate to account page to show KYC status
+            router.replace('/tabs/account');
+          } else {
+            // KYC is verified, go to portfolio
+            router.replace('/tabs/(portfolio)/summary');
+          }
+        } catch (profileError) {
+          console.error('Failed to fetch profile:', profileError);
+          // If profile fetch fails, still allow login but go to account page
+          Toast.show({
+            type: 'success',
+            text1: 'Login successful!',
+            text2: `Welcome back, ${response.data.firstName}!`,
+          });
+          router.replace('/tabs/account');
+        }
       }
     } catch (error) {
       console.error('Login failed:', error);

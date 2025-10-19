@@ -72,6 +72,7 @@ const PortfolioScreen = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState (false);
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
 
   const fetchPortfolio = async () => {
     try {
@@ -82,9 +83,10 @@ const PortfolioScreen = () => {
         ? await AsyncStorage.getItem('userId')
         : await SecureStore.getItemAsync('userId');
 
-      const [portfolioRes, summaryRes] = await Promise.all([
+      const [portfolioRes, summaryRes, profileRes] = await Promise.all([
         axiosInstance.get(`/portfolio/${userId}`),
         axiosInstance.get(`/portfolio/summary/${userId}`),
+        axiosInstance.get('/user/profile').catch(() => ({ data: { kycStatus: null } }))
       ]);
 
       setPortfolio(portfolioRes.data.portfolio);
@@ -109,6 +111,7 @@ const PortfolioScreen = () => {
       };
 
       setPortfolioSummary(mappedSummary);
+      setKycStatus(profileRes.data.kycStatus);
 
       const summaries: { [symbol: string]: PositionSummary } = {};
       for (const symbol of Object.keys(portfolioRes.data.portfolio.positions)) {
@@ -162,6 +165,22 @@ const PortfolioScreen = () => {
           <Text style={styles.refreshText}>Refresh</Text>
         </TouchableOpacity>
       )}
+      
+      {/* KYC Status Warning */}
+      {kycStatus && kycStatus !== 'Verified' && (
+        <View style={[styles.card, { borderLeftColor: '#FF9800', backgroundColor: '#2A1A00' }]}>
+          <View style={styles.row}>
+            <MaterialIcons name="warning" size={24} color="#FF9800" />
+            <Text style={styles.symbol}>KYC Verification Required</Text>
+          </View>
+          <Text style={[styles.label, { color: '#FFB74D' }]}>
+            {kycStatus === 'PendingReview' 
+              ? 'Your KYC is under review. Trading is restricted until verification is complete.'
+              : 'Please complete KYC verification to start trading. Click the Account tab to begin.'}
+          </Text>
+        </View>
+      )}
+
       <View style={[styles.card, { borderLeftColor: '#FFD700' }]}>
         <View style={styles.row}>
           <MaterialIcons name="account-balance-wallet" size={24} color="#FFD700" />

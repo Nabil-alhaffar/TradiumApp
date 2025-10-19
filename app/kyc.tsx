@@ -915,8 +915,14 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   checkbox: {
+    width: 24,
+    height: 24,
+    borderWidth: 2,
+    borderColor: '#2E8B57',
+    borderRadius: 4,
     marginRight: 12,
-    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   checkboxText: {
     color: '#FFF',
